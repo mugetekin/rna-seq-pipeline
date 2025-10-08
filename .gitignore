@@ -1,21 +1,14 @@
-# R
 .Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
 .Rapp.history
 .Rprofile
-
-# Outputs & data
-data/*
-!data/README.md
-# outputs’un tamamını ignore et, ama figures/results/rds alt klasörlerini İZNE ÇIKAR
 outputs/*
 !outputs/.gitkeep
 !outputs/figures/**
 !outputs/results/**
 !outputs/rds/**
-
-
-# Large temporary locks (Windows)
+data/*
+!data/README.md
 */00LOCK*
