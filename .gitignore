@@ -6,6 +6,9 @@
 .Rprofile
 outputs/*
 !outputs/.gitkeep
+!outputs/figures/
+!outputs/results/
+!outputs/rds/
 !outputs/figures/**
 !outputs/results/**
 !outputs/rds/**
