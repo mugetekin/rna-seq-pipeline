@@ -1,0 +1,16 @@
+paths:
+  counts: "data/raw_annotated_combined.counts"
+  outputs: "outputs"
+  rds: "outputs/rds"
+  results: "outputs/results"
+  figures: "outputs/figures"
+
+params:
+  cpm_min: 1
+  cpm_min_samples: 3
+  ref_group: "PBS"
+  contrasts: ["Lo_vs_PBS","Med_vs_PBS","Hi_vs_PBS"]
+  lfc_thresh: 1
+  fdr_thresh: 0.05
+  go_ont: "BP"
+  go_n_show: 10
