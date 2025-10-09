@@ -1,4 +1,4 @@
-# QC + volcano + MA + PCA + hist
+# QC + Volcano + MA + PCA + hist (dinamik coef adları)
 source("R/io_helpers.R")
 suppressPackageStartupMessages({
   library(edgeR); library(limma); library(tidyverse)
@@ -12,23 +12,40 @@ annot <- obj$annot; meta <- obj$meta; dge <- obj$dge; v <- obj$v; fit2 <- obj$fi
 
 dir.create(cfg$paths$figures, showWarnings=FALSE, recursive=TRUE)
 
+# --- katsayı adı yardımcıları ---
+norm_name <- function(x) gsub(" - ", "_vs_", x, fixed = TRUE)
+avail_raw  <- colnames(fit2$coefficients)
+avail_norm <- norm_name(avail_raw)
+
+get_tt <- function(cn_norm) {
+  idx <- match(cn_norm, avail_norm)
+  if (is.na(idx)) return(NULL)
+  topTable(fit2, coef = avail_raw[idx], number = Inf, sort.by = "P")
+}
+
+# --- 1) Library sizes ---
 png(file.path(cfg$paths$figures,"library_sizes.png"), width=900, height=600)
 barplot(colSums(dge$counts), las=2, main="Library sizes", ylab="Total counts")
 dev.off()
 
+# --- 2) MDS (TMM-normalized) ---
 png(file.path(cfg$paths$figures,"MDS_groups.png"), width=700, height=700)
 plotMDS(dge, labels = meta$Group); title("MDS (TMM-normalized)")
 dev.off()
 
+# --- 3) voom mean–variance ---
 pdf(file.path(cfg$paths$figures,"voom_meanvar.pdf"), 6, 5)
 voom(dge, model.matrix(~0+Group, data=meta), plot=TRUE)
 dev.off()
 
-tt_lo  <- topTable(fit2, coef="Lo_vs_PBS",  number=Inf, sort.by="P")
-tt_med <- topTable(fit2, coef="Med_vs_PBS", number=Inf, sort.by="P")
-tt_hi  <- topTable(fit2, coef="Hi_vs_PBS",  number=Inf, sort.by="P")
+# --- 4) DE tablolarını çek (varsa) ---
+tt_lo  <- get_tt("Lo_vs_PBS")
+tt_med <- get_tt("Med_vs_PBS")
+tt_hi  <- get_tt("Hi_vs_PBS")
 
-plot_volcano <- function(tt, title_txt, lfc_thresh=1, fdr=0.05){
+# --- helpers ---
+plot_volcano <- function(tt, title_txt, lfc_thresh=cfg$params$lfc_thresh, fdr=cfg$params$fdr_thresh){
+  req <- c("logFC","P.Value","adj.P.Val"); if (is.null(tt) || !all(req %in% names(tt))) return(NULL)
   df <- as.data.frame(tt) %>%
     mutate(sig = adj.P.Val < fdr & abs(logFC) > lfc_thresh,
            color = case_when(sig & logFC>0 ~ "Up",
@@ -43,7 +60,8 @@ plot_volcano <- function(tt, title_txt, lfc_thresh=1, fdr=0.05){
     theme_minimal()
 }
 
-plot_volcano_labeled <- function(tt, title_txt, lfc_thresh=1, fdr=0.05, label_n=12){
+plot_volcano_labeled <- function(tt, title_txt, lfc_thresh=cfg$params$lfc_thresh, fdr=cfg$params$fdr_thresh, label_n=12){
+  if (is.null(tt)) return(NULL)
   keyType <- if (grepl("^ENSMUSG", rownames(tt)[1])) "ENSEMBL" else "SYMBOL"
   keys <- rownames(tt)
   symbol_map <- AnnotationDbi::mapIds(org.Mm.eg.db, keys=keys, keytype=keyType, column="SYMBOL", multiVals="first")
@@ -72,32 +90,44 @@ plot_volcano_labeled <- function(tt, title_txt, lfc_thresh=1, fdr=0.05, label_n=
     theme_minimal()
 }
 
-ggsave(file.path(cfg$paths$figures,"Volcano_Lo_vs_PBS.png"),  plot_volcano(tt_lo, "Lo vs PBS",  cfg$params$lfc_thresh, cfg$params$fdr_thresh), width=6, height=5, dpi=300)
-ggsave(file.path(cfg$paths$figures,"Volcano_Med_vs_PBS.png"), plot_volcano(tt_med,"Med vs PBS", cfg$params$lfc_thresh, cfg$params$fdr_thresh), width=6, height=5, dpi=300)
-ggsave(file.path(cfg$paths$figures,"Volcano_Hi_vs_PBS.png"),  plot_volcano(tt_hi, "Hi vs PBS",  cfg$params$lfc_thresh, cfg$params$fdr_thresh), width=6, height=5, dpi=300)
+# --- 5) Volcano PNG’leri (var olan kontrastlar için) ---
+if (!is.null(tt_lo))
+  ggsave(file.path(cfg$paths$figures,"Volcano_Lo_vs_PBS.png"),
+         plot_volcano(tt_lo, "Lo vs PBS"), width=6, height=5, dpi=300)
+if (!is.null(tt_med))
+  ggsave(file.path(cfg$paths$figures,"Volcano_Med_vs_PBS.png"),
+         plot_volcano(tt_med,"Med vs PBS"), width=6, height=5, dpi=300)
+if (!is.null(tt_hi))
+  ggsave(file.path(cfg$paths$figures,"Volcano_Hi_vs_PBS.png"),
+         plot_volcano(tt_hi, "Hi vs PBS"), width=6, height=5, dpi=300)
 
-ggsave(file.path(cfg$paths$figures,"Volcano_Lo_vs_PBS_labeled.png"),
-       plot_volcano_labeled(tt_lo, "Lo vs PBS", cfg$params$lfc_thresh, cfg$params$fdr_thresh), width=6, height=5, dpi=300)
+# --- 6) Labeled volcano (Lo varsa) ---
+pv <- plot_volcano_labeled(tt_lo, "Lo vs PBS")
+if (!is.null(pv))
+  ggsave(file.path(cfg$paths$figures,"Volcano_Lo_vs_PBS_labeled.png"), pv, width=6, height=5, dpi=300)
 
+# --- 7) p-value histograms ---
 png(file.path(cfg$paths$figures,"pval_histograms.png"), width=1200, height=400)
 par(mfrow=c(1,3))
-hist(tt_lo$P.Value,  50, main="Lo vs PBS",  col="lightblue",  xlab="P-value")
-hist(tt_med$P.Value, 50, main="Med vs PBS", col="lightgreen", xlab="P-value")
-hist(tt_hi$P.Value,  50, main="Hi vs PBS",  col="lightcoral", xlab="P-value")
+if (!is.null(tt_lo))  hist(tt_lo$P.Value,  50, main="Lo vs PBS",  col="lightblue",  xlab="P-value") else plot.new()
+if (!is.null(tt_med)) hist(tt_med$P.Value, 50, main="Med vs PBS", col="lightgreen", xlab="P-value") else plot.new()
+if (!is.null(tt_hi))  hist(tt_hi$P.Value,  50, main="Hi vs PBS",  col="lightcoral", xlab="P-value") else plot.new()
 dev.off()
 
+# --- 8) MA plots (limma) ---
 png(file.path(cfg$paths$figures,"MA_Lo_Med_Hi.png"), width=1200, height=400)
 par(mfrow=c(1,3))
-limma::plotMA(fit2, coef="Lo_vs_PBS",  main="MA: Lo vs PBS");  abline(h=c(-1,1), col="red", lty=2)
-limma::plotMA(fit2, coef="Med_vs_PBS", main="MA: Med vs PBS"); abline(h=c(-1,1), col="red", lty=2)
-limma::plotMA(fit2, coef="Hi_vs_PBS",  main="MA: Hi vs PBS");  abline(h=c(-1,1), col="red", lty=2)
+if (!is.null(tt_lo))  { limma::plotMA(fit2, coef=avail_raw[match("Lo_vs_PBS", avail_norm)],  main="MA: Lo vs PBS");  abline(h=c(-1,1), col="red", lty=2) } else plot.new()
+if (!is.null(tt_med)) { limma::plotMA(fit2, coef=avail_raw[match("Med_vs_PBS",avail_norm)], main="MA: Med vs PBS"); abline(h=c(-1,1), col="red", lty=2) } else plot.new()
+if (!is.null(tt_hi))  { limma::plotMA(fit2, coef=avail_raw[match("Hi_vs_PBS", avail_norm)],  main="MA: Hi vs PBS");  abline(h=c(-1,1), col="red", lty=2) } else plot.new()
 dev.off()
 
+# --- 9) PCA (voom E) ---
 pca <- prcomp(t(v$E), scale.=TRUE)
 p <- factoextra::fviz_pca_ind(
        pca,
        geom.ind = "point",
-       habillage = meta$Group,   # << doğru kullanım
+       habillage = meta$Group,
        addEllipses = TRUE,
        ellipse.level = 0.95,
        legend.title = "Group"
