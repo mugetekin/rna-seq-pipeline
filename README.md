@@ -219,11 +219,3 @@ clusterProfiler / enrichplot / DOSE — Yu G et al. and related packages for enr
 org.Mm.eg.db / GO.db — Bioconductor annotation packages for Mus musculus and Gene Ontology.
 
 If you analyze the published LPS pituitary dataset, also cite the corresponding data source and paper, and include the Dryad/SRA accession as appropriate.
-
-### License
-
-If not specified otherwise, this code is provided “as is” for academic use. Add a license file if you require a specific license.
-
-### Contact
-
-For issues or enhancement requests, please open a GitHub issue on your fork of the repository.
