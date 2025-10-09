@@ -11,16 +11,14 @@ run_step <- function(s) {
   cat("\n========== RUNNING:", s, "==========\n")
   flush.console()
   tryCatch({
-    # çalışma dizinini değiştirme!
     source(s, echo = FALSE, max.deparse.length = Inf, chdir = FALSE)
-    cat("✅ DONE:", s, "\n")
+    cat("DONE:", s, "\n")
   }, error = function(e) {
-    cat("❌ FAILED at", s, ":\n", conditionMessage(e), "\n")
+    cat("FAILED at", s, ":\n", conditionMessage(e), "\n")
     quit(status = 1)
   })
 }
 
-# run from repo root
 cat("Working dir:", getwd(), "\n")
 invisible(lapply(steps, run_step))
-cat("\n🎉 All steps finished.\n")
+cat("\nAll steps finished.\n")
