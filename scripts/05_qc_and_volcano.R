@@ -1,4 +1,5 @@
-# QC + Volcano + MA + PCA + hist (dinamik coef adları)
+# 05_qc_and_volcano.R — QC, volcano/MA/PCA/histograms (dynamic coef names)
+
 source("R/io_helpers.R")
 suppressPackageStartupMessages({
   library(edgeR); library(limma); library(tidyverse)
@@ -10,12 +11,12 @@ cfg <- load_cfg()
 obj <- readRDS(file.path(cfg$paths$rds,"norm_and_fit.rds"))
 annot <- obj$annot; meta <- obj$meta; dge <- obj$dge; v <- obj$v; fit2 <- obj$fit2
 
-dir.create(cfg$paths$figures, showWarnings=FALSE, recursive=TRUE)
+dir.create(cfg$paths$figures, showWarnings = FALSE, recursive = TRUE)
 
-# --- katsayı adı yardımcıları ---
-norm_name <- function(x) gsub(" - ", "_vs_", x, fixed = TRUE)
-avail_raw  <- colnames(fit2$coefficients)
-avail_norm <- norm_name(avail_raw)
+# --- coefficient name helpers: map "Lo - PBS" -> "Lo_vs_PBS" ---
+norm_name   <- function(x) gsub(" - ", "_vs_", x, fixed = TRUE)
+avail_raw   <- colnames(fit2$coefficients)
+avail_norm  <- norm_name(avail_raw)
 
 get_tt <- function(cn_norm) {
   idx <- match(cn_norm, avail_norm)
@@ -38,7 +39,7 @@ pdf(file.path(cfg$paths$figures,"voom_meanvar.pdf"), 6, 5)
 voom(dge, model.matrix(~0+Group, data=meta), plot=TRUE)
 dev.off()
 
-# --- 4) DE tablolarını çek (varsa) ---
+# --- 4) Retrieve DE tables (if available) ---
 tt_lo  <- get_tt("Lo_vs_PBS")
 tt_med <- get_tt("Med_vs_PBS")
 tt_hi  <- get_tt("Hi_vs_PBS")
@@ -90,7 +91,7 @@ plot_volcano_labeled <- function(tt, title_txt, lfc_thresh=cfg$params$lfc_thresh
     theme_minimal()
 }
 
-# --- 5) Volcano PNG’leri (var olan kontrastlar için) ---
+# --- 5) Volcano PNGs (only for contrasts that exist) ---
 if (!is.null(tt_lo))
   ggsave(file.path(cfg$paths$figures,"Volcano_Lo_vs_PBS.png"),
          plot_volcano(tt_lo, "Lo vs PBS"), width=6, height=5, dpi=300)
@@ -101,12 +102,12 @@ if (!is.null(tt_hi))
   ggsave(file.path(cfg$paths$figures,"Volcano_Hi_vs_PBS.png"),
          plot_volcano(tt_hi, "Hi vs PBS"), width=6, height=5, dpi=300)
 
-# --- 6) Labeled volcano (Lo varsa) ---
+# --- 6) Labeled volcano (Lo, if available) ---
 pv <- plot_volcano_labeled(tt_lo, "Lo vs PBS")
 if (!is.null(pv))
   ggsave(file.path(cfg$paths$figures,"Volcano_Lo_vs_PBS_labeled.png"), pv, width=6, height=5, dpi=300)
 
-# --- 7) p-value histograms ---
+# --- 7) P-value histograms ---
 png(file.path(cfg$paths$figures,"pval_histograms.png"), width=1200, height=400)
 par(mfrow=c(1,3))
 if (!is.null(tt_lo))  hist(tt_lo$P.Value,  50, main="Lo vs PBS",  col="lightblue",  xlab="P-value") else plot.new()
