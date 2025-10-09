@@ -5,7 +5,7 @@ This repository provides a stepwise, script-oriented RNA-seq pipeline for differ
 The pipeline assumes a PBS/Lo/Med/Hi treatment design (PBS as reference) and a single raw counts file with gene annotations. All outputs are written to versioned subfolders and large artifacts are tracked via Git LFS.
 
 Contents
-.
+
 ├── R/
 
 │   ├── io_helpers.R         # I/O, config, annotation parsing, output helpers
@@ -36,15 +36,15 @@ Contents
 
 ├── data/
 
-│   └── raw_annotated_combined.counts   # (you provide) raw counts+annotation
+│   └── raw_annotated_combined.counts   # raw counts+annotation
 
 └── outputs/
 
-    ├── rds/                 # intermediate R objects
+│   ├── rds/                 # intermediate R objects
 
-    ├── results/             # TSV/CSV analysis tables
+│   ├── results/             # TSV/CSV analysis tables
 
-    └── figures/             # PNG/PDF figures
+│  └── figures/             # PNG/PDF figures
 
 
 ## Requirements
