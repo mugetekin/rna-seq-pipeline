@@ -15,3 +15,6 @@ outputs/*
 data/*
 !data/README.md
 */00LOCK*
+
+# Ignore R history even inside results
+outputs/results/.Rhistory
