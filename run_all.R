@@ -5,7 +5,8 @@ steps <- c(
   "scripts/04_plots_and_goi.R",
   "scripts/05_qc_and_volcano.R",
   "scripts/06_go_networks.R"
-)
+,
+  "scripts/07_goi_zoom.R")
 
 run_step <- function(s) {
   cat("\n========== RUNNING:", s, "==========\n")

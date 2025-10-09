@@ -1,6 +1,6 @@
 R := "/c/Program Files/R/R-4.3.3/bin/x64/Rscript.exe" --vanilla
 
-all: normalize de go goi qc gonet
+all: normalize de go goi qc gonet goizoom
 
 normalize:
 	$(R) scripts/01_normalize.R
@@ -19,3 +19,6 @@ qc:
 
 gonet:
 	$(R) scripts/06_go_networks.R
+
+goizoom:
+	$(R) scripts/07_goi_zoom.R
