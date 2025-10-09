@@ -7,9 +7,8 @@ io   <- read_counts_annot(cfg$paths$counts)
 meta <- make_meta_from_colnames(colnames(io$counts))
 stopifnot(all(meta$SampleID == make.names(colnames(io$counts))))
 
-dge  <- do_normalize(io$counts, meta,
-                     cpm_min = cfg$params$cpm_min,
-                     cpm_min_samples = cfg$params$cpm_min_samples)
+# do_normalize artık sadece (counts, meta) alıyor; filterByExpr içeride
+dge  <- do_normalize(io$counts, meta)
 
 fit  <- fit_limma(dge, meta)
 v    <- fit$v; fit2 <- fit$fit2

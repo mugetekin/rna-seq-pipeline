@@ -34,7 +34,7 @@ read_counts_annot <- function(counts_path) {
 }
 
 make_meta_from_colnames <- function(cn) {
-  tibble(
+  raw <- tibble(
     SampleID = make.names(cn),
     Group = dplyr::case_when(
       startsWith(cn, "PBS") ~ "PBS",
@@ -43,7 +43,12 @@ make_meta_from_colnames <- function(cn) {
       startsWith(cn, "Hi")  ~ "Hi",
       TRUE ~ "Other"
     )
-  ) %>% mutate(Group = factor(Group, levels = c("PBS","Lo","Med","Hi","Other")))
+  )
+  # mevcut olmayan seviyeleri at (Other varsa ve örnek yoksa düşer)
+  present <- unique(raw$Group)
+  wanted  <- intersect(c("PBS","Lo","Med","Hi","Other"), present)
+  raw$Group <- factor(raw$Group, levels = wanted)
+  raw
 }
 
 dir_prep <- function(cfg) {

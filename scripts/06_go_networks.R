@@ -26,10 +26,14 @@ make_emap <- function(g, label, show_n=25, w=9, h=7){
 make_cnet <- function(g, label, fc_vec, show_n=15, w=10, h=7){
   if (is.null(g) || nrow(as.data.frame(g))==0) return(invisible(NULL))
   set.seed(42)
-  p <- enrichplot::cnetplot(g, showCategory=show_n, foldChange=fc_vec,
-                            circular=FALSE, colorEdge=TRUE,
-                            node_label="category", layout.params=list(layout="fr")) +
-       ggtitle(paste0(label," — gene–GO network"))
+  p <- enrichplot::cnetplot(
+         g,
+         showCategory = show_n,
+         circular     = FALSE,
+         node_label   = "category",
+         layout.params= list(layout="fr"),
+         color.params = list(foldChange = fc_vec, edge = TRUE)  # yeni API
+       ) + ggtitle(paste0(label," — gene–GO network"))
   ggsave(file.path(cfg$paths$figures,"go", paste0("cnet_", label, "_BP.png")),
          plot=p, width=w, height=h, dpi=300, device=ragg::agg_png)
   invisible(p)

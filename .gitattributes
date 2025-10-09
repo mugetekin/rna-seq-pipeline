@@ -1,3 +1,17 @@
 outputs/figures/* filter=lfs diff=lfs merge=lfs -text
 outputs/results/* filter=lfs diff=lfs merge=lfs -text
 outputs/rds/* filter=lfs diff=lfs merge=lfs -text
+
+# --- normalize line endings for text/code ---
+*               text=auto
+*.R             text eol=lf
+*.Rmd           text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.csv           text eol=lf
+*.tsv           text eol=lf
+
+# --- LFS for big outputs (already active) ---
+outputs/figures/* filter=lfs diff=lfs merge=lfs -text
+outputs/results/* filter=lfs diff=lfs merge=lfs -text
+outputs/rds/*     filter=lfs diff=lfs merge=lfs -text
