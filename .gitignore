@@ -14,6 +14,9 @@ outputs/*
 !outputs/rds/**
 data/*
 !data/README.md
+!data/*.csv
+!data/*.tsv
+
 */00LOCK*
 
 # Ignore R history even inside results
