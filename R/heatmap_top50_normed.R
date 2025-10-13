@@ -10,12 +10,12 @@ dir.create(out_dir, showWarnings = FALSE)
 obj <- load_normed_expr("data/normed_cpms_filtered_annot.csv")
 expr_log <- obj$expr_log
 grp      <- obj$grp
+samples  <- colnames(expr_log)
 
-# diagnostics: show groups and sample counts
 message("Groups present and counts:"); print(table(grp))
-message("Samples seen: ", paste(colnames(expr_log), collapse = ", "))
+message("Samples: ", paste(samples, collapse = ", "))
 
-# choose top N by variance (NA-aware)
+## --- Top-N by NA-aware variance (no name stripping) ---
 N <- 50L
 row_var <- apply(expr_log, 1, function(x) var(x[is.finite(x)], na.rm = TRUE))
 row_var[!is.finite(row_var)] <- -Inf
@@ -24,41 +24,86 @@ sel_n <- min(N, sum(is.finite(row_var) & row_var > -Inf))
 top_idx <- ord[seq_len(sel_n)]
 mat_top <- expr_log[top_idx, , drop = FALSE]
 
-# impute NAs by row-median for visualization
-mat_top <- t(apply(mat_top, 1, function(x){
-  if (all(!is.finite(x))) return(rep(0, length(x)))
-  xr <- x
-  xr[!is.finite(xr)] <- median(xr[is.finite(xr)], na.rm = TRUE)
-  xr
-}))
-rownames(mat_top) <- rownames(expr_log)[top_idx]
+## --- Long form + diagnostics of NAs (no renaming of Gene!) ---
+df <- as.data.frame(mat_top) |>
+  tibble::rownames_to_column("Gene") |>
+  tidyr::pivot_longer(-Gene, names_to = "Sample", values_to = "logCPM") |>
+  dplyr::mutate(Group = grp[match(Sample, samples)])
 
-# column annotation
-ann <- data.frame(Group = grp)
-rownames(ann) <- colnames(expr_log)
+na_diag <- df |>
+  dplyr::group_by(Gene) |>
+  dplyr::summarise(
+    nNA_total   = sum(!is.finite(logCPM)),
+    nNA_by_group= paste(tapply(!is.finite(logCPM), Group, sum), collapse = ";"),
+    .groups = "drop"
+  )
 
-# palette
+## --- Impute within Gene x Group (fallback to gene median) ---
+df_imputed <- df |>
+  dplyr::group_by(Gene) |>
+  dplyr::mutate(gene_med = median(logCPM[is.finite(logCPM)], na.rm = TRUE)) |>
+  dplyr::group_by(Gene, Group, .add = TRUE) |>
+  dplyr::mutate(
+    grp_med = if (any(is.finite(logCPM))) median(logCPM[is.finite(logCPM)], na.rm = TRUE) else NA_real_,
+    logCPM_imp = dplyr::case_when(
+      is.finite(logCPM) ~ logCPM,
+      is.finite(grp_med) ~ grp_med,
+      TRUE ~ gene_med
+    )
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::select(Gene, Sample, Group, logCPM = logCPM_imp)
+
+## --- Collapse any duplicate (Gene, Sample) pairs by mean BEFORE widening ---
+df_imputed <- df_imputed |>
+  dplyr::group_by(Gene, Sample) |>
+  dplyr::summarise(logCPM = mean(logCPM, na.rm = TRUE), .groups = "drop")
+
+## --- Back to matrix safely (no stripping); enforce unique rownames if needed ---
+mat_imp <- df_imputed |>
+  tidyr::pivot_wider(names_from = Sample, values_from = logCPM) |>
+  tibble::column_to_rownames("Gene") |>
+  as.data.frame()
+
+if (any(duplicated(rownames(mat_imp)))) {
+  dups <- unique(rownames(mat_imp)[duplicated(rownames(mat_imp))])
+  message("WARNING: duplicate gene names found after widening; making unique: ",
+          paste(dups, collapse = ", "))
+  rownames(mat_imp) <- make.unique(rownames(mat_imp))
+}
+mat_imp <- as.matrix(mat_imp)
+
+## --- Column annotation
+ann <- data.frame(Group = grp); rownames(ann) <- colnames(mat_imp)
+
+## --- Palette
 pal <- colorRampPalette(c("#0d0887","#6a00a8","#b12a90","#e16462","#fca636","#f0f921"))
 
-# save Top list
-readr::write_csv(tibble(Gene = rownames(mat_top)),
-                 file.path(out_dir, "Top50_variable_genes.csv"))
+## --- Outputs: Top list, diagnostics, heatmap
+readr::write_csv(
+  tibble(Gene = rownames(mat_top)),  # the selected rows (pre-imputation)
+  file.path(out_dir, "Top50_variable_genes.csv")
+)
+readr::write_csv(
+  na_diag |> dplyr::arrange(desc(nNA_total), Gene),
+  file.path(out_dir, "Top50_imputation_diagnostics.csv")
+)
 
-# plot
 png(file.path(out_dir, "Heatmap_Top50_logCPM.png"), width = 1200, height = 950)
 pheatmap(
-  mat_top,
+  mat_imp,
   color = pal(101),
   annotation_col = ann,
   show_rownames = FALSE,
   cluster_rows = TRUE,
   cluster_cols = TRUE,
-  main = sprintf("Top %d most variable genes (log2-CPM, NA-imputed row median)", sel_n),
+  main = sprintf("Top %d most variable genes (log2-CPM, group-wise median imputation)", sel_n),
   fontsize = 11,
   border_color = NA
 )
 dev.off()
 
 message("Saved: ",
-        file.path(out_dir, "Heatmap_Top50_logCPM.png"),
-        " and Top50_variable_genes.csv")
+        file.path(out_dir, "Heatmap_Top50_logCPM.png"), "; ",
+        file.path(out_dir, "Top50_variable_genes.csv"), "; ",
+        file.path(out_dir, "Top50_imputation_diagnostics.csv"))
