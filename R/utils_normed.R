@@ -19,19 +19,14 @@ load_normed_expr <- function(csv = "data/normed_cpms_filtered_annot.csv") {
                                    check.names = FALSE, row.names = rownames(expr)))
   expr_log <- log2(expr_num + 1)
 
-  # ---- SAFER CLEANING ----
-  # Drop rows (genes) with any non-finite across samples
-  fin <- is.finite(expr_log)
-  keep_rows <- apply(fin, 1, all)
+  # ---- KEEP columns even if they have some NAs ----
+  # keep rows (genes) that have at least 2 finite values (so var is defined)
+  keep_rows <- apply(expr_log, 1, function(x) sum(is.finite(x)) >= 2)
   expr_log  <- expr_log[keep_rows, , drop = FALSE]
 
-  # Drop columns only if they are entirely non-finite (should be rare)
-  keep_cols <- apply(is.finite(expr_log), 2, any)
+  # keep columns that have at least 1 finite value
+  keep_cols <- apply(expr_log, 2, function(x) any(is.finite(x)))
   expr_log  <- expr_log[, keep_cols, drop = FALSE]
-
-  # Drop zero-variance genes
-  nzv <- apply(expr_log, 1, sd) > 0
-  expr_log <- expr_log[nzv, , drop = FALSE]
 
   # groups from sample id prefix
   sample_ids <- colnames(expr_log)
@@ -43,12 +38,6 @@ load_normed_expr <- function(csv = "data/normed_cpms_filtered_annot.csv") {
     TRUE ~ "Other"
   )
   grp <- factor(grp, levels = c("PBS","Lo","Med","Hi","Other"))
-
-  # small diagnostic
-  if (any(!keep_cols)) {
-    dropped <- setdiff(colnames(expr), colnames(expr_log))
-    message("Dropped columns (entirely non-finite): ", paste(dropped, collapse = ", "))
-  }
 
   list(expr_log = expr_log, grp = grp)
 }
