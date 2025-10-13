@@ -7,7 +7,7 @@ io   <- read_counts_annot(cfg$paths$counts)
 meta <- make_meta_from_colnames(colnames(io$counts))
 stopifnot(all(meta$SampleID == make.names(colnames(io$counts))))
 
-# do_normalize artık sadece (counts, meta) alıyor; filterByExpr içeride
+# do_normalize now only takes (counts, meta); filterByExpr is handled inside
 dge  <- do_normalize(io$counts, meta)
 
 fit  <- fit_limma(dge, meta)
