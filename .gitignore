@@ -12,11 +12,16 @@ outputs/*
 !outputs/figures/**
 !outputs/results/**
 !outputs/rds/**
+# normalized analysis output
+outputs_normed/*
+!outputs_normed/.gitkeep
+!outputs_normed/**
+
+
 data/*
 !data/README.md
 !data/*.csv
 !data/*.tsv
-
 */00LOCK*
 
 # Ignore R history even inside results
