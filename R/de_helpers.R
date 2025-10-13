@@ -2,17 +2,20 @@ suppressPackageStartupMessages({
   library(edgeR); library(limma); library(tidyverse)
 })
 
-# ---- edgeR önerisi: filterByExpr + TMM ----
+# edgeR best practice: filterByExpr + TMM normalization
 do_normalize <- function(counts, meta) {
-  meta <- meta %>% mutate(Group = droplevels(Group)) # kullanılmayan seviyeleri düşür
+  # Drop unused factor levels
+  meta <- meta %>% mutate(Group = droplevels(Group))
   dge <- DGEList(counts = as.matrix(counts), samples = as.data.frame(meta))
+  
+  # Filter low-expressed genes and normalize library sizes
   keep <- filterByExpr(dge, group = meta$Group)
   dge  <- dge[keep,, keep.lib.sizes = FALSE]
   dge  <- calcNormFactors(dge, method = "TMM")
   dge
 }
 
-# ---- limma-voom + contrasts (seviyeler daraltılmış) ----
+# limma-voom model fitting + contrasts (handles reduced factor levels)
 fit_limma <- function(dge, meta) {
   meta <- meta %>% mutate(Group = droplevels(Group))
   design <- model.matrix(~ 0 + Group, data = meta)
@@ -20,7 +23,7 @@ fit_limma <- function(dge, meta) {
 
   v <- voom(dge, design, plot = FALSE)
 
-  # mevcut olmayan seviyeler otomatik düşer; contrasts olanları varsa kur
+  # Automatically skip unavailable contrasts
   has <- colnames(design)
   mk <- function(a,b) if (all(c(a,b) %in% has)) paste0(a," - ",b) else NA_character_
 
@@ -40,7 +43,7 @@ fit_limma <- function(dge, meta) {
   list(v = v, fit2 = fit2)
 }
 
-# ---- Snapshot writers ----
+# Write post-normalization snapshots
 write_post_norm <- function(dge, v, annot_keep, cfg) {
   rk <- rownames(dge$counts)
   name_key <- make.unique(ifelse(is.na(annot_keep$SYMBOL) | annot_keep$SYMBOL=="",
@@ -48,14 +51,17 @@ write_post_norm <- function(dge, v, annot_keep, cfg) {
   idx <- match(rk, name_key)
   keep_annot <- tibble(id = annot_keep$id[idx], SYMBOL = annot_keep$SYMBOL[idx])
 
+  # Export normalized CPMs
   cpm_mat <- edgeR::cpm(dge, normalized.lib.sizes = TRUE)
   readr::write_csv(bind_cols(keep_annot, as.data.frame(cpm_mat, check.names=FALSE)),
                    file.path(cfg$paths$results, "CPM_filtered_annot_POST.csv"))
 
+  # Export voom-transformed logCPMs
   voomE <- v$E[match(rk, rownames(v$E)),, drop = FALSE]
   readr::write_csv(bind_cols(keep_annot, as.data.frame(voomE, check.names=FALSE)),
                    file.path(cfg$paths$results, "voom_logCPM_filtered_annot_POST.csv"))
 
+  # Export filtered raw counts
   readr::write_csv(bind_cols(keep_annot, as.data.frame(dge$counts, check.names=FALSE)),
                    file.path(cfg$paths$results, "raw_counts_filtered_annot_POST.csv"))
 }
