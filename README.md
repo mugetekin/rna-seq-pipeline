@@ -1,221 +1,172 @@
-# RNA-seq Analysis Pipeline (mouse pituitary, PBS/Lo/Med/Hi design)
+# RNA-seq Analysis Pipeline (Mouse Pituitary: PBS / Lo / Med / Hi Design)
 
-This repository provides a stepwise, script-oriented RNA-seq pipeline for differential expression, gene set enrichment, quality control, and “gene-of-interest” (GOI) visualization. The code is written in R and organized so each stage can be run independently or end-to-end.
+A modular **R-based RNA-seq analysis pipeline** designed for stepwise or end-to-end processing of **pituitary transcriptomics data** from a **PBS/Lo/Med/Hi LPS treatment experiment** (Garcia *et al.*, *Front. Endocrinol.*, 2024).
 
-The pipeline assumes a PBS/Lo/Med/Hi treatment design (PBS as reference) and a single raw counts file with gene annotations. All outputs are written to versioned subfolders and large artifacts are tracked via Git LFS.
+This pipeline performs normalization, differential expression, enrichment analysis, QC, and visualization, including **gene-of-interest (GOI)** summaries and **GSEA-driven insights**.
 
-Contents
+---
 
-├── R/
+## Project Overview
 
-│   ├── io_helpers.R         # I/O, config, annotation parsing, output helpers
+```
+R/                     # Reusable functions (I/O, normalization, modeling)
+scripts/               # Analysis steps (01–07)
+├── 01_normalize.R       # Filtering, TMM normalization, voom
+├── 02_de_limma.R        # Differential expression (Lo/Med/Hi vs PBS)
+├── 03_go_enrichment.R   # GSEA (GO:BP)
+├── 04_plots_and_goi.R   # GOI ranking & plots
+├── 05_qc_and_volcano.R  # QC & volcano plots
+├── 06_go_networks.R     # GO term networks
+└── 07_goi_zoom.R        # Detailed GOI & Venn analyses
+run_all.R               # Master script (runs all steps sequentially)
+Makefile                # For automation (`make all`)
+config.yaml             # User parameters and file paths
+data/                   # Raw input data (counts + annotations)
+outputs/                # Results, figures, RDS intermediates
+```
 
-│   └── de_helpers.R         # normalization, design/contrasts, model fitting
-
-├── scripts/
-
-│   ├── 01_normalize.R       # CPM filter, TMM, voom; post-normalization exports
-
-│   ├── 02_de_limma.R        # limma-voom DE; contrast tables (Lo/Med/Hi vs PBS)
-
-│   ├── 03_go_enrichment.R   # GSEA over GO (BP); dotplots and CSVs
-
-│   ├── 04_plots_and_goi.R   # GOI ranking/shortlists; violin/heatmap/bar+SEM
-
-│   ├── 05_qc_and_volcano.R  # QC (library size, MDS/PCA, MA) and volcano plots
-
-│   ├── 06_go_networks.R     # GO term networks (emapplot, cnetplot)
-
-│   └── 07_goi_zoom.R        # Focused analysis for selected GOIs (incl. Venn)
-
-├── run_all.R                # Orchestrates scripts 01–07 with error trapping
-
-├── Makefile                 # `make all` (01→07), or run steps individually
-
-├── config.yaml              # Paths and analysis parameters
-
-├── data/
-
-│   └── raw_annotated_combined.counts   # raw counts+annotation
-
-└── outputs/
-
-│   ├── rds/                 # intermediate R objects
-
-│   ├── results/             # TSV/CSV analysis tables
-
-│  └── figures/             # PNG/PDF figures
-
+---
 
 ## Requirements
 
-R 4.3+ on Windows/macOS/Linux.
+- **R 4.3+** (Windows/macOS/Linux)
+- **Git LFS** (large files)
+- Core R packages:
+  ```
+  data.table, tidyverse, edgeR, limma, yaml,
+  clusterProfiler, enrichplot, DOSE, org.Mm.eg.db,
+  GO.db, ggrepel, factoextra, ragg, ggVennDiagram
+  ```
 
-**R packages:** data.table, tidyverse, edgeR, limma, yaml, clusterProfiler, enrichplot, DOSE, org.Mm.eg.db, GO.db, ggrepel, factoextra, ragg, ggVennDiagram (the scripts check and install when feasible).
+> The scripts auto-install missing packages when possible.
 
-Git LFS for large binary outputs (already configured via .gitattributes).
+**Windows note:**  
+If `Rscript` is not in your PATH:
+```bash
+"/c/Program Files/R/R-4.3.3/bin/x64/Rscript.exe" --vanilla run_all.R
+```
 
-**Windows users:** If Rscript is not on PATH, invoke it explicitly, e.g.
-"/c/Program Files/R/R-4.3.3/bin/x64/Rscript.exe" --vanilla ...
+---
 
-## Input specification
+## Input Data
 
-**Counts file:** data/raw_annotated_combined.counts
-A tab-delimited matrix with at least one annotation column (e.g. id, SYMBOL, gene_type) and then sample columns (counts).
+**Raw counts:** `data/raw_annotated_combined.counts`  
+Tab-delimited file with:
+- 1+ annotation columns (e.g., `id`, `SYMBOL`, `gene_type`)
+- Followed by raw count columns per sample
 
-Row identifiers are built as SYMBOL (fallback to id) with make.unique.
+**Sample naming convention:**
+| Prefix | Group | Notes |
+|--------|--------|-------|
+| PBS*   | PBS (reference) | control group |
+| Lo*    | Low dose LPS    | treatment 1 |
+| Med*   | Medium dose LPS | treatment 2 |
+| Hi*    | High dose LPS   | treatment 3 |
 
-**Sample naming:** Group is inferred from sample name prefix:
+Samples outside these prefixes are labeled “Other” and excluded from contrasts.
 
-PBS* → PBS (reference) 
+**Normalized CPMs:** `data/normed_cpms_filtered_annot.csv` Used for visualization, QC checks, and validation of main output trends.
 
-Lo* → Lo
-
-Med* → Med
-
-Hi* → Hi
-
-Samples not matching these prefixes are labeled “Other” and safely excluded from contrasts.
+---
 
 ## Configuration
 
-**Edit config.yaml:**
+Edit `config.yaml` to adjust:
+```yaml
+paths:
+  counts:  data/raw_annotated_combined.counts
+  outputs: outputs
 
-**paths:**
-
-  counts:  "data/raw_annotated_combined.counts"
-
-  outputs: "outputs"
-
-  rds:     "outputs/rds"
-
-  results: "outputs/results"
-
-  figures: "outputs/figures"
-
-
-**params:**
-
+params:
+  ref_group: PBS
+  contrasts: [Lo_vs_PBS, Med_vs_PBS, Hi_vs_PBS]
   cpm_min: 1
-
   cpm_min_samples: 3
-
-  ref_group: "PBS"
-
-  contrasts: ["Lo_vs_PBS","Med_vs_PBS","Hi_vs_PBS"]
-
   lfc_thresh: 1
-
   fdr_thresh: 0.05
-
-  go_ont: "BP"
-
+  go_ont: BP
   go_n_show: 10
+```
 
+---
 
-## Quick start
+## Quick Start
 
-**Option A — one command (recommended):**
-
+### Option 1 — One command
+```bash
 Rscript --vanilla run_all.R
+```
 
-## on Windows Git Bash, if Rscript is not on PATH:
-"/c/Program Files/R/R-4.3.3/bin/x64/Rscript.exe" --vanilla run_all.R
-
-
-**Option B — with Make:**
-
-make all      # runs 01→07
-
-## or individual targets:
+### Option 2 — With Make
+```bash
+make all
+```
+Or run individual stages:
+```bash
 make normalize de go goi qc networks goi_zoom
+```
 
+All results are stored in `outputs/`, with intermediates in `outputs/rds/`.
 
-All outputs are written under outputs/ and intermediate objects under outputs/rds/.
+---
 
-What each step does
+## Main Outputs
 
-**01_normalize.R:** Filters low counts (CPM ≥ cpm_min in ≥ cpm_min_samples; plus filterByExpr). TMM normalization and voom. Exports: filtered raw counts, CPM (TMM), voom logCPM.
+| Output | Description |
+|--------|--------------|
+| `outputs/results/DE_*_vs_PBS.tsv` | DE tables (limma-voom) |
+| `outputs/results/go/gseGO_*.csv` | GO:BP enrichment results |
+| `outputs/results/goi/GOI_ranked_all.csv` | Ranked GOI summary |
+| `outputs/figures/` | QC, volcanoes, dotplots, GO networks, GOI visuals |
+| `outputs/rds/` | Serialized intermediate R objects |
 
-**02_de_limma.R:** Builds design (PBS/Lo/Med/Hi), computes contrasts vs PBS. Fits lmFit + eBayes; writes full DE tables (.tsv) for each contrast.
+---
 
-**03_go_enrichment.R:** Ranks genes by logFC, maps IDs to Entrez, performs GSEA (GO:BP). Saves dotplots and CSVs per contrast; robust to small gene lists.
+## Pipeline Summary
 
-**04_plots_and_goi.R:** Data-driven GOI ranking combining DE and GSEA signals. Produces: GOI violin plots, heatmap (row-Z), bar+jitter with mean±SEM and Dunnett stars vs PBS. Writes GOI_ranked_all.csv and two shortlists (broad/strict).
+| Step | Script | Description |
+|------|---------|-------------|
+| **01** | `normalize.R` | CPM filter, TMM, voom normalization |
+| **02** | `de_limma.R` | DE modeling (PBS as reference) |
+| **03** | `go_enrichment.R` | GSEA via `clusterProfiler` |
+| **04** | `plots_and_goi.R` | GOI scoring + violin, heatmap, bar+SEM |
+| **05** | `qc_and_volcano.R` | Library QC, PCA/MDS, volcano plots |
+| **06** | `go_networks.R` | GO term & gene-term networks |
+| **07** | `goi_zoom.R` | Focused per-GOI plots & Venn diagrams |
 
-**05_qc_and_volcano.R:** QC: library sizes, MDS, PCA, MA plots; Volcano plots per contrast (with optional labels). Dynamic handling of available contrast names.
+---
 
-**06_go_networks.R:** Term–term similarity networks (emapplot) and gene–term networks (cnetplot). Uses fold-change colors where available; saves PNG/PDF.
+## Reproducibility Notes
 
-**07_goi_zoom.R:** Focused analysis for specified GOIs (default: Bub1, Cenpi, Esco2, Rpl36-ps12). Plots violin / bar+jitter for these genes; Venn diagrams for leading-edge genes (global) and for Lo vs PBS; Exports per-gene summary tables.
+- **Normalization:** TMM + `filterByExpr` (edgeR best practices)  
+- **Modeling:** `limma-voom` with empirical Bayes  
+- **Multiple testing:** Benjamini–Hochberg FDR  
+- **GSEA:** `clusterProfiler::gseGO` (GO:BP ontology)  
+- **GOI logic:** Combines DE significance and enrichment context  
 
-## Outputs (selected)
-
-outputs/results/DE_<Lo|Med|Hi>_vs_PBS.tsv — full limma DE results.
-
-outputs/results/go/gseGO_<Lo|Med|Hi>.csv — GSEA results (GO:BP).
-
-outputs/results/goi/GOI_ranked_all.csv — global GOI ranking.
-
-outputs/figures/ — QC (library size, MDS/PCA/MA), volcanoes, GO dotplots, GO networks, GOI panels, and GOI zoom (incl. Venn).
-
-outputs/rds/ — intermediate objects (norm_and_fit.rds, de_tables.rds, go_objs.rds) for reuse.
-
-All images and large artifacts are tracked by Git LFS.
-
-## Reproducibility notes
-
-**Normalization:** CPM filtering + TMM; filterByExpr is applied to match limma/edgeR best practice.
-
-**Modeling:** limma-voom with empirical Bayes moderation; PBS as reference.
-
-**Multiple testing:** Benjamini–Hochberg FDR unless stated.
-
-**GSEA:** GO:BP with clusterProfiler::gseGO; robust ID mapping via org.Mm.eg.db.
-
-**GOI logic:** Integrates DE magnitude/significance and enrichment context; shortlists are parameterized.
+---
 
 ## Troubleshooting
 
-“Coefficients not estimable: Other”
+| Issue | Explanation |
+|--------|-------------|
+| “Coefficients not estimable: Other” | Samples not matching PBS/Lo/Med/Hi are excluded automatically. |
+| Contrast name mismatch | Check contrast names via: `readRDS("outputs/rds/norm_and_fit.rds") |> \`colnames(obj$fit2$coefficients)` |
+| Line-ending warnings (CRLF) | Safe to ignore on Windows. |
+| Memory usage | Intermediate `.rds` files reduce memory load between steps. |
 
-Informational: samples not matching PBS/Lo/Med/Hi are labeled “Other” and excluded from contrasts. Safe to ignore.
+---
 
-Contrast name mismatch
+## Citation
 
-Scripts detect available contrast names and will error with a clear message if a requested contrast is missing. Check colnames(obj$fit2$coefficients) via:
+If using this pipeline or its outputs, please cite:
 
-obj <- readRDS("outputs/rds/norm_and_fit.rds"); colnames(obj$fit2$coefficients)
+**Primary dataset:**  
+Garcia *et al.* (2024). *Lipopolysaccharide-induced chronic inflammation increases female serum gonadotropins and shifts the pituitary transcriptomic landscape.*  
+*Front. Endocrinol.* 14:1279878. [DOI: 10.3389/fendo.2023.1279878](https://doi.org/10.3389/fendo.2023.1279878)
 
-
-### Windows line endings warnings (CRLF)
-
-Benign; the repo is configured to normalize line endings. You can suppress the warning or set git config core.autocrlf input if preferred.
-
-### Memory usage
-
-The pipeline exports intermediate RDS/CSV snapshots to avoid re-computation and to keep per-session memory bounded.
-
-### Extending the pipeline
-
-Change GOI list: Edit the goi vector in scripts/07_goi_zoom.R.
-
-Add contrasts: Update params.contrasts in config.yaml and re-run 02_de_limma.R.
-
-Different ontology: Set params.go_ont to MF or CC and re-run 03_go_enrichment.R.
-
-New design: If your study design deviates from PBS/Lo/Med/Hi, adapt make_meta_from_colnames() in R/io_helpers.R and the model matrix in R/de_helpers.R.
-
-### How to cite
-
-Please cite the software/libraries that enable this workflow:
-
-edgeR — Robinson MD, McCarthy DJ, Smyth GK. edgeR: a Bioconductor package for differential expression analysis of digital gene expression data. Bioinformatics (2010).
-
-limma/voom — Law CW, Chen Y, Shi W, Smyth GK. voom: Precision weights unlock linear model analysis tools for RNA-seq read counts. Genome Biol (2014); Ritchie ME et al., Nucleic Acids Res (2015).
-
-clusterProfiler / enrichplot / DOSE — Yu G et al. and related packages for enrichment analysis and visualization.
-
-org.Mm.eg.db / GO.db — Bioconductor annotation packages for Mus musculus and Gene Ontology.
-
-If you analyze the published LPS pituitary dataset, also cite the corresponding data source and paper, and include the Dryad/SRA accession as appropriate.
+**Software & methods:**  
+- **edgeR:** Robinson *et al.*, *Bioinformatics* (2010)  
+- **limma/voom:** Law *et al.*, *Genome Biol* (2014); Ritchie *et al.*, *NAR* (2015)  
+- **clusterProfiler/enrichplot/DOSE:** Yu *et al.*  
+- **org.Mm.eg.db / GO.db:** Bioconductor annotation packages  
