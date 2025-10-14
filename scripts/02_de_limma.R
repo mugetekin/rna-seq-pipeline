@@ -14,9 +14,9 @@ fit2 <- obj$fit2
 norm_name <- function(x) gsub(" - ", "_vs_", x, fixed = TRUE)
 
 # Available coefficients in the fitted model
-avail_raw  <- colnames(fit2$coefficients)              # e.g., "Lo - PBS", "Lo - Med", ...
-avail_norm <- norm_name(avail_raw)                      # e.g., "Lo_vs_PBS", "Lo_vs_Med", ...
-names(avail_raw) <- avail_norm                          # map normalized -> raw
+avail_raw  <- colnames(fit2$coefficients)
+avail_norm <- norm_name(avail_raw)
+names(avail_raw) <- avail_norm
 
 # Requested contrasts (from config) or default (ALL available)
 want <- cfg$params$contrasts
@@ -45,7 +45,7 @@ dir.create(cfg$paths$results, showWarnings = FALSE, recursive = TRUE)
 # Compute & write each DE table
 de_list <- setNames(vector("list", length(use_norm)), use_norm)
 for (cn_norm in use_norm) {
-  coef_raw <- avail_raw[[cn_norm]]   # real coef name in fit2 (e.g., "Lo - Med")
+  coef_raw <- avail_raw[[cn_norm]]   # e.g., "Lo - Med"
   tt <- topTable(
     fit2,
     coef          = coef_raw,
@@ -55,13 +55,16 @@ for (cn_norm in use_norm) {
     p.value       = fdr_thr,
     adjust.method = adj_mth
   )
-  # add Gene column from rownames for tidy TSV
-  if (!tibble::has_name(tt, "Gene")) {
-    tt <- tt %>% tibble::rownames_to_column("Gene")
+
+  # ---- IMPORTANT: keep rownames in-memory; only add Gene for the TSV copy ----
+  tt_for_file <- tt
+  if (!tibble::has_name(tt_for_file, "Gene")) {
+    tt_for_file <- tt_for_file %>% tibble::rownames_to_column("Gene")
   }
+
   out_tsv <- file.path(cfg$paths$results, paste0("DE_", cn_norm, ".tsv"))
-  readr::write_tsv(tt, out_tsv)
-  de_list[[cn_norm]] <- tt
+  readr::write_tsv(tt_for_file, out_tsv)
+  de_list[[cn_norm]] <- tt                   # keep original rownames here
   message("Wrote: ", out_tsv, "  (coef: ", coef_raw, ")")
 }
 

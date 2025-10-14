@@ -21,15 +21,79 @@ r_lo  <- go_obj$r_lo;    r_med  <- go_obj$r_med;  r_hi  <- go_obj$r_hi
 dir.create(file.path(cfg$paths$results, "goi"), showWarnings = FALSE, recursive = TRUE)
 dir.create(file.path(cfg$paths$figures, "goi"), showWarnings = FALSE, recursive = TRUE)
 
-# --- helpers ---
-map_rownames_to_symbol <- function(keys){
-  if (!length(keys)) return(character(0))
-  keyType <- if (grepl("^ENSMUSG", keys[1])) "ENSEMBL" else "SYMBOL"
-  sy <- AnnotationDbi::mapIds(org.Mm.eg.db, keys = keys, keytype = keyType,
-                              column = "SYMBOL", multiVals = "first")
-  sy2 <- ifelse(is.na(sy) | sy == "", keys, unname(sy))
-  names(sy2) <- keys; sy2
+# -------- helpers --------
+find_col <- function(nms, candidates) {
+  cand <- candidates[candidates %in% nms]
+  if (length(cand)) cand[1] else NA_character_
 }
+
+# Safe SYMBOL mapper: if keys look numeric or empty, just return them
+safe_symbol_map <- function(keys){
+  keys <- as.character(keys)
+  if (!length(keys)) return(character(0))
+  # If most keys are purely numeric, skip mapping
+  frac_numeric <- mean(grepl("^\\d+$", keys))
+  if (is.na(frac_numeric)) frac_numeric <- 0
+  if (frac_numeric > 0.5) {
+    names(keys) <- keys
+    return(keys)
+  }
+  # try SYMBOL first, then ENSEMBL, but do not error
+  try_map <- function(keytype){
+    tryCatch(
+      AnnotationDbi::mapIds(org.Mm.eg.db, keys = keys, keytype = keytype,
+                            column = "SYMBOL", multiVals = "first"),
+      error = function(e) setNames(rep(NA_character_, length(keys)), keys)
+    )
+  }
+  m1 <- try_map("SYMBOL")
+  # if nothing mapped, try ENSEMBL
+  if (all(is.na(m1))) {
+    keys2 <- sub("\\.\\d+$","", keys)
+    m2 <- try_map("ENSEMBL")
+    if (!is.null(names(m2))) names(m2) <- keys
+    sy <- unname(ifelse(is.na(m2), keys, m2))
+  } else {
+    sy <- unname(ifelse(is.na(m1) | m1=="", keys, m1))
+  }
+  names(sy) <- keys
+  sy
+}
+
+pick_de <- function(tt, lbl){
+  if (is.null(tt) || !nrow(tt)) {
+    return(tibble(KEY=character(),
+                  !!paste0("logFC_", lbl) := numeric(),
+                  !!paste0("FDR_",   lbl) := numeric()))
+  }
+  df <- as.data.frame(tt)
+
+  lfc_col <- find_col(names(df), c("logFC","log2FoldChange","LFC","coef"))
+  fdr_col <- find_col(names(df), c("adj.P.Val","adj.P.Val.","FDR","qvalue","padj","q.val","qvalueBH"))
+  if (is.na(lfc_col) || is.na(fdr_col)) {
+    stop(sprintf("Could not find LFC/FDR columns for '%s'. Available columns: %s",
+                 lbl, paste(names(df), collapse=", ")))
+  }
+
+  # Prefer rownames if they exist & are not plain indices; else Gene column if present
+  rn <- rownames(df)
+  use_rn <- !is.null(rn) && length(rn) == nrow(df) &&
+            mean(grepl("^\\d+$", rn)) < 0.5 && all(nzchar(rn))
+  if (use_rn) {
+    key <- rn
+  } else if ("Gene" %in% names(df)) {
+    key <- as.character(df$Gene)
+  } else {
+    key <- as.character(seq_len(nrow(df)))
+  }
+
+  tibble(KEY = key) |>
+    mutate(
+      !!paste0("logFC_", lbl) := as.numeric(df[[lfc_col]]),
+      !!paste0("FDR_",   lbl) := as.numeric(df[[fdr_col]])
+    )
+}
+
 row_z <- function(m){
   t(apply(m, 1, function(x){
     mu <- mean(x, na.rm = TRUE); sdv <- sd(x, na.rm = TRUE)
@@ -38,20 +102,12 @@ row_z <- function(m){
   }))
 }
 
-# --- unified DE table + flags (still focused on Lo/Med/Hi vs PBS for GOI) ---
-pick_de <- function(tt, lbl){
-  if (is.null(tt)) return(tibble(KEY=character(), !!paste0("logFC_",lbl):=numeric(), !!paste0("FDR_",lbl):=numeric()))
-  as.data.frame(tt) |>
-    tibble::rownames_to_column("KEY") |>
-    transmute(KEY,
-              !!paste0("logFC_", lbl) := logFC,
-              !!paste0("FDR_",   lbl) := adj.P.Val)
-}
+# -------- unified DE table + flags --------
 de_tbl <- list(lo=tt_lo, med=tt_med, hi=tt_hi) |>
   purrr::imap(~pick_de(.x, .y)) |>
   purrr::reduce(full_join, by="KEY")
 
-sym_map <- map_rownames_to_symbol(de_tbl$KEY)
+sym_map <- safe_symbol_map(de_tbl$KEY)
 de_tbl  <- de_tbl |>
   mutate(SYMBOL = unname(sym_map[KEY]),
          pass_lo  = !is.na(FDR_lo)  & FDR_lo  <= (cfg$params$fdr_thresh %||% 0.05) & abs(logFC_lo)  >= (cfg$params$lfc_thresh %||% 1),
@@ -64,7 +120,7 @@ de_tbl  <- de_tbl |>
            length(non_na) >= 2 && all(sign(non_na) == sign(non_na[1]))
          })
 
-# --- GSEA leading-edge → SYMBOL list (robust to column names) ---
+# -------- GSEA leading-edge → SYMBOL list --------
 extract_symbols_from_gsea <- function(g, n_terms = 12){
   df <- as.data.frame(g)
   if (is.null(df) || !nrow(df)) return(character(0))
@@ -85,7 +141,7 @@ go_focus <- unique(c(
   extract_symbols_from_gsea(g_hi, 12)
 ))
 
-# --- score & shortlists ---
+# -------- score & shortlists --------
 rng <- range(de_tbl$mean_abs_logFC, na.rm = TRUE); if (diff(rng)==0) rng <- c(0,1)
 de_ranked <- de_tbl |>
   mutate(in_GO_focus = SYMBOL %in% go_focus,
@@ -100,9 +156,9 @@ readr::write_csv(de_ranked,   file.path(cfg$paths$results, "goi", "GOI_ranked_al
 readr::write_csv(short_strict,file.path(cfg$paths$results, "goi", "GOI_shortlist_strict.csv"))
 readr::write_csv(short_broad, file.path(cfg$paths$results, "goi", "GOI_shortlist_broad.csv"))
 
-# --- plotting helpers ---
+# -------- plotting helpers --------
 plot_violin_goi <- function(goi, fname){
-  sy_map <- map_rownames_to_symbol(rownames(v$E))
+  sy_map <- safe_symbol_map(rownames(v$E))
   keep <- tolower(unname(sy_map)) %in% tolower(goi)
   stopifnot(any(keep))
   mat <- v$E[keep,, drop=FALSE]; rownames(mat) <- unname(sy_map[rownames(mat)])
@@ -123,16 +179,8 @@ plot_violin_goi <- function(goi, fname){
   ggsave(fname, p, width = max(7, 3 + 2.5*length(unique(df$Gene))), height=4, dpi=300)
 }
 
-row_z <- function(m){
-  t(apply(m, 1, function(x){
-    mu <- mean(x, na.rm = TRUE); sdv <- sd(x, na.rm = TRUE)
-    if (!is.finite(sdv) || sdv == 0) return(rep(0, length(x)))
-    (x - mu) / sdv
-  }))
-}
-
 plot_heatmap_goi <- function(goi, fname){
-  sy_map <- map_rownames_to_symbol(rownames(v$E))
+  sy_map <- safe_symbol_map(rownames(v$E))
   keep <- tolower(unname(sy_map)) %in% tolower(goi)
   stopifnot(any(keep))
   mat <- v$E[keep,, drop=FALSE]; rownames(mat) <- unname(sy_map[rownames(mat)])
@@ -168,7 +216,7 @@ plot_heatmap_goi <- function(goi, fname){
 }
 
 plot_barjit_dunnett_goi <- function(goi, fname){
-  sy_map <- map_rownames_to_symbol(rownames(v$E))
+  sy_map <- safe_symbol_map(rownames(v$E))
   keep <- tolower(unname(sy_map)) %in% tolower(goi)
   stopifnot(any(keep))
   mat <- v$E[keep,, drop=FALSE]; rownames(mat) <- unname(sy_map[rownames(mat)])
@@ -214,7 +262,7 @@ plot_barjit_dunnett_goi <- function(goi, fname){
   ggsave(fname, p, width = max(7, 3 + 2.5*length(unique(df$Gene))), height=4, dpi=300)
 }
 
-# --- run ---
+# -------- run --------
 go_focus <- go_focus  # keep in scope
 
 rng <- range(de_tbl$mean_abs_logFC, na.rm = TRUE); if (diff(rng)==0) rng <- c(0,1)
