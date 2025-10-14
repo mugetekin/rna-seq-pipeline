@@ -23,24 +23,42 @@ fit_limma <- function(dge, meta) {
 
   v <- voom(dge, design, plot = FALSE)
 
-  # Automatically skip unavailable contrasts
-  has <- colnames(design)
-  mk <- function(a,b) if (all(c(a,b) %in% has)) paste0(a," - ",b) else NA_character_
-
-  contrs <- c(
+  # Automatically create contrasts among available groups
+  has <- colnames(design)                 # e.g., PBS, Lo, Med, Hi present in this dataset
+  mk  <- function(a,b) if (all(c(a,b) %in% has)) paste0(a," - ",b) else NA_character_
+  
+  # 1) classic vs-PBS contrasts
+  contrs_vs_ref <- c(
     Lo_vs_PBS  = mk("Lo","PBS"),
     Med_vs_PBS = mk("Med","PBS"),
     Hi_vs_PBS  = mk("Hi","PBS")
   )
+  
+  # 2) all pairwise among non-reference levels (Lo, Med, Hi)
+  non_ref <- setdiff(has, "PBS")
+  if (length(non_ref) >= 2) {
+    pw <- combn(non_ref, 2, simplify = FALSE)
+    contrs_pw <- setNames(
+      vapply(pw, function(p) mk(p[1], p[2]), character(1)),
+      vapply(pw, function(p) paste0(p[1], "_vs_", p[2]), character(1))
+    )
+  } else {
+    contrs_pw <- c()
+  }
+  
+  contrs <- c(contrs_vs_ref, contrs_pw)
   contrs <- contrs[!is.na(contrs)]
-  if (!length(contrs)) stop("No valid contrasts with available groups: ", paste(has, collapse=", "))
-
+  
+  if (!length(contrs))
+    stop("No valid contrasts with available groups: ", paste(has, collapse = ", "))
+  
   cm <- makeContrasts(contrasts = unname(contrs), levels = design)
-  names(cm) <- names(contrs)
-
+  colnames(cm) <- names(contrs)           # keep friendly names like Lo_vs_Med
+  
   fit  <- lmFit(v, design)
-  fit2 <- eBayes(contrasts.fit(fit, cm))
+  fit2 <- eBayes(contrasts.fit(fit, cm), trend = TRUE)
   list(v = v, fit2 = fit2)
+  
 }
 
 # Write post-normalization snapshots

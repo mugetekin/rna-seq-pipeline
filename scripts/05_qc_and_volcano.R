@@ -1,11 +1,12 @@
 # 05_qc_and_volcano.R — QC, volcano/MA/PCA/histograms (dynamic coef names)
-
 source("R/io_helpers.R")
 suppressPackageStartupMessages({
   library(edgeR); library(limma); library(tidyverse)
   library(ggrepel); library(factoextra); library(ragg)
   library(AnnotationDbi); library(org.Mm.eg.db)
 })
+
+`%||%` <- function(a, b) if (is.null(a) || !length(a)) b else a
 
 cfg <- load_cfg()
 obj <- readRDS(file.path(cfg$paths$rds,"norm_and_fit.rds"))
@@ -15,6 +16,7 @@ dir.create(cfg$paths$figures, showWarnings = FALSE, recursive = TRUE)
 
 # --- coefficient name helpers: map "Lo - PBS" -> "Lo_vs_PBS" ---
 norm_name   <- function(x) gsub(" - ", "_vs_", x, fixed = TRUE)
+pretty_name <- function(x) gsub("_vs_", " vs ", x, fixed = TRUE)
 avail_raw   <- colnames(fit2$coefficients)
 avail_norm  <- norm_name(avail_raw)
 
@@ -39,13 +41,12 @@ pdf(file.path(cfg$paths$figures,"voom_meanvar.pdf"), 6, 5)
 voom(dge, model.matrix(~0+Group, data=meta), plot=TRUE)
 dev.off()
 
-# --- 4) Retrieve DE tables (if available) ---
-tt_lo  <- get_tt("Lo_vs_PBS")
-tt_med <- get_tt("Med_vs_PBS")
-tt_hi  <- get_tt("Hi_vs_PBS")
+# --- thresholds ---
+lfc_thr <- cfg$params$lfc_thresh %||% 1
+fdr_thr <- cfg$params$fdr_thresh %||% 0.05
 
 # --- helpers ---
-plot_volcano <- function(tt, title_txt, lfc_thresh=cfg$params$lfc_thresh, fdr=cfg$params$fdr_thresh){
+plot_volcano <- function(tt, title_txt, lfc_thresh=lfc_thr, fdr=fdr_thr){
   req <- c("logFC","P.Value","adj.P.Val"); if (is.null(tt) || !all(req %in% names(tt))) return(NULL)
   df <- as.data.frame(tt) %>%
     mutate(sig = adj.P.Val < fdr & abs(logFC) > lfc_thresh,
@@ -61,8 +62,8 @@ plot_volcano <- function(tt, title_txt, lfc_thresh=cfg$params$lfc_thresh, fdr=cf
     theme_minimal()
 }
 
-plot_volcano_labeled <- function(tt, title_txt, lfc_thresh=cfg$params$lfc_thresh, fdr=cfg$params$fdr_thresh, label_n=12){
-  if (is.null(tt)) return(NULL)
+plot_volcano_labeled <- function(tt, title_txt, lfc_thresh=lfc_thr, fdr=fdr_thr, label_n=12){
+  if (is.null(tt) || !nrow(tt)) return(NULL)
   keyType <- if (grepl("^ENSMUSG", rownames(tt)[1])) "ENSEMBL" else "SYMBOL"
   keys <- rownames(tt)
   symbol_map <- AnnotationDbi::mapIds(org.Mm.eg.db, keys=keys, keytype=keyType, column="SYMBOL", multiVals="first")
@@ -91,7 +92,45 @@ plot_volcano_labeled <- function(tt, title_txt, lfc_thresh=cfg$params$lfc_thresh
     theme_minimal()
 }
 
-# --- 5) Volcano PNGs (only for contrasts that exist) ---
+# --- 4) Decide which contrasts to plot ---
+want <- cfg$params$contrasts %||% avail_norm   # if config lists some, respect it
+to_plot <- intersect(want, avail_norm)
+if (!length(to_plot)) {
+  message("No contrasts to plot; available: ", paste(avail_norm, collapse=", "))
+}
+
+# --- 5) Per-contrast volcanoes / labeled volcanoes / MA / p-value hists ---
+for (cn in to_plot) {
+  tt <- get_tt(cn)
+  title_txt <- pretty_name(cn)
+
+  # Volcano
+  pv <- plot_volcano(tt, title_txt)
+  if (!is.null(pv))
+    ggsave(file.path(cfg$paths$figures, paste0("Volcano_", cn, ".png")), pv, width=6, height=5, dpi=300)
+
+  # Labeled Volcano
+  pvl <- plot_volcano_labeled(tt, title_txt)
+  if (!is.null(pvl))
+    ggsave(file.path(cfg$paths$figures, paste0("Volcano_", cn, "_labeled.png")), pvl, width=6, height=5, dpi=300)
+
+  # MA plot
+  png(file.path(cfg$paths$figures, paste0("MA_", cn, ".png")), width=700, height=550)
+  idx <- match(cn, avail_norm)
+  if (!is.na(idx)) { limma::plotMA(fit2, coef=avail_raw[idx], main=paste0("MA: ", title_txt)); abline(h=c(-1,1), col="red", lty=2) } else plot.new()
+  dev.off()
+
+  # P-value histogram
+  png(file.path(cfg$paths$figures, paste0("PvalHist_", cn, ".png")), width=700, height=500)
+  if (!is.null(tt) && "P.Value" %in% names(tt)) hist(tt$P.Value, 50, main=title_txt, col="grey80", xlab="P-value")
+  dev.off()
+}
+
+# --- 6) Classic Lo/Med/Hi panels (kept for continuity if present) ---
+tt_lo  <- get_tt("Lo_vs_PBS")
+tt_med <- get_tt("Med_vs_PBS")
+tt_hi  <- get_tt("Hi_vs_PBS")
+
 if (!is.null(tt_lo))
   ggsave(file.path(cfg$paths$figures,"Volcano_Lo_vs_PBS.png"),
          plot_volcano(tt_lo, "Lo vs PBS"), width=6, height=5, dpi=300)
@@ -102,12 +141,10 @@ if (!is.null(tt_hi))
   ggsave(file.path(cfg$paths$figures,"Volcano_Hi_vs_PBS.png"),
          plot_volcano(tt_hi, "Hi vs PBS"), width=6, height=5, dpi=300)
 
-# --- 6) Labeled volcano (Lo, if available) ---
 pv <- plot_volcano_labeled(tt_lo, "Lo vs PBS")
 if (!is.null(pv))
   ggsave(file.path(cfg$paths$figures,"Volcano_Lo_vs_PBS_labeled.png"), pv, width=6, height=5, dpi=300)
 
-# --- 7) P-value histograms ---
 png(file.path(cfg$paths$figures,"pval_histograms.png"), width=1200, height=400)
 par(mfrow=c(1,3))
 if (!is.null(tt_lo))  hist(tt_lo$P.Value,  50, main="Lo vs PBS",  col="lightblue",  xlab="P-value") else plot.new()
@@ -115,7 +152,6 @@ if (!is.null(tt_med)) hist(tt_med$P.Value, 50, main="Med vs PBS", col="lightgree
 if (!is.null(tt_hi))  hist(tt_hi$P.Value,  50, main="Hi vs PBS",  col="lightcoral", xlab="P-value") else plot.new()
 dev.off()
 
-# --- 8) MA plots (limma) ---
 png(file.path(cfg$paths$figures,"MA_Lo_Med_Hi.png"), width=1200, height=400)
 par(mfrow=c(1,3))
 if (!is.null(tt_lo))  { limma::plotMA(fit2, coef=avail_raw[match("Lo_vs_PBS", avail_norm)],  main="MA: Lo vs PBS");  abline(h=c(-1,1), col="red", lty=2) } else plot.new()
@@ -123,7 +159,7 @@ if (!is.null(tt_med)) { limma::plotMA(fit2, coef=avail_raw[match("Med_vs_PBS",av
 if (!is.null(tt_hi))  { limma::plotMA(fit2, coef=avail_raw[match("Hi_vs_PBS", avail_norm)],  main="MA: Hi vs PBS");  abline(h=c(-1,1), col="red", lty=2) } else plot.new()
 dev.off()
 
-# --- 9) PCA (voom E) ---
+# --- 7) PCA (voom E) ---
 pca <- prcomp(t(v$E), scale.=TRUE)
 p <- factoextra::fviz_pca_ind(
        pca,

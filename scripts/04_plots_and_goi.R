@@ -3,8 +3,10 @@ source("R/io_helpers.R")
 suppressPackageStartupMessages({
   library(tidyverse); library(ggrepel); library(scales)
   library(AnnotationDbi); library(org.Mm.eg.db)
-  library(emmeans); library(DOSE)
+  library(emmeans); library(DOSE); library(readr)
 })
+
+`%||%` <- function(a, b) if (is.null(a) || !length(a)) b else a
 
 cfg      <- load_cfg()
 norm_obj <- readRDS(file.path(cfg$paths$rds, "norm_and_fit.rds"))
@@ -21,7 +23,8 @@ dir.create(file.path(cfg$paths$figures, "goi"), showWarnings = FALSE, recursive 
 
 # --- helpers ---
 map_rownames_to_symbol <- function(keys){
-  keyType <- if (length(keys) && grepl("^ENSMUSG", keys[1])) "ENSEMBL" else "SYMBOL"
+  if (!length(keys)) return(character(0))
+  keyType <- if (grepl("^ENSMUSG", keys[1])) "ENSEMBL" else "SYMBOL"
   sy <- AnnotationDbi::mapIds(org.Mm.eg.db, keys = keys, keytype = keyType,
                               column = "SYMBOL", multiVals = "first")
   sy2 <- ifelse(is.na(sy) | sy == "", keys, unname(sy))
@@ -35,8 +38,9 @@ row_z <- function(m){
   }))
 }
 
-# --- unified DE table + flags ---
+# --- unified DE table + flags (still focused on Lo/Med/Hi vs PBS for GOI) ---
 pick_de <- function(tt, lbl){
+  if (is.null(tt)) return(tibble(KEY=character(), !!paste0("logFC_",lbl):=numeric(), !!paste0("FDR_",lbl):=numeric()))
   as.data.frame(tt) |>
     tibble::rownames_to_column("KEY") |>
     transmute(KEY,
@@ -50,9 +54,9 @@ de_tbl <- list(lo=tt_lo, med=tt_med, hi=tt_hi) |>
 sym_map <- map_rownames_to_symbol(de_tbl$KEY)
 de_tbl  <- de_tbl |>
   mutate(SYMBOL = unname(sym_map[KEY]),
-         pass_lo  = !is.na(FDR_lo)  & FDR_lo  <= cfg$params$fdr_thresh & abs(logFC_lo)  >= cfg$params$lfc_thresh,
-         pass_med = !is.na(FDR_med) & FDR_med <= cfg$params$fdr_thresh & abs(logFC_med) >= cfg$params$lfc_thresh,
-         pass_hi  = !is.na(FDR_hi)  & FDR_hi  <= cfg$params$fdr_thresh & abs(logFC_hi)  >= cfg$params$lfc_thresh,
+         pass_lo  = !is.na(FDR_lo)  & FDR_lo  <= (cfg$params$fdr_thresh %||% 0.05) & abs(logFC_lo)  >= (cfg$params$lfc_thresh %||% 1),
+         pass_med = !is.na(FDR_med) & FDR_med <= (cfg$params$fdr_thresh %||% 0.05) & abs(logFC_med) >= (cfg$params$lfc_thresh %||% 1),
+         pass_hi  = !is.na(FDR_hi)  & FDR_hi  <= (cfg$params$fdr_thresh %||% 0.05) & abs(logFC_hi)  >= (cfg$params$lfc_thresh %||% 1),
          pass_any = pass_lo | pass_med | pass_hi,
          mean_abs_logFC = rowMeans(cbind(abs(logFC_lo), abs(logFC_med), abs(logFC_hi)), na.rm = TRUE),
          dir_consistent = {
@@ -63,7 +67,7 @@ de_tbl  <- de_tbl |>
 # --- GSEA leading-edge → SYMBOL list (robust to column names) ---
 extract_symbols_from_gsea <- function(g, n_terms = 12){
   df <- as.data.frame(g)
-  if (is.null(df) || nrow(df) == 0) return(character(0))
+  if (is.null(df) || !nrow(df)) return(character(0))
   rank_col <- if ("qvalues" %in% names(df)) "qvalues" else if ("p.adjust" %in% names(df)) "p.adjust" else names(df)[1]
   df <- df |>
     dplyr::arrange(.data[[rank_col]], dplyr::desc(abs(.data$NES))) |>
@@ -117,6 +121,14 @@ plot_violin_goi <- function(goi, fname){
     labs(title="GOI — voom log2-CPM (violin)", x=NULL, y="log2(CPM+1)") +
     theme_minimal(base_size=12) + theme(legend.position = "none")
   ggsave(fname, p, width = max(7, 3 + 2.5*length(unique(df$Gene))), height=4, dpi=300)
+}
+
+row_z <- function(m){
+  t(apply(m, 1, function(x){
+    mu <- mean(x, na.rm = TRUE); sdv <- sd(x, na.rm = TRUE)
+    if (!is.finite(sdv) || sdv == 0) return(rep(0, length(x)))
+    (x - mu) / sdv
+  }))
 }
 
 plot_heatmap_goi <- function(goi, fname){
@@ -203,7 +215,7 @@ plot_barjit_dunnett_goi <- function(goi, fname){
 }
 
 # --- run ---
-go_focus <- go_focus  # (no-op to keep object in scope checkers happy)
+go_focus <- go_focus  # keep in scope
 
 rng <- range(de_tbl$mean_abs_logFC, na.rm = TRUE); if (diff(rng)==0) rng <- c(0,1)
 de_ranked <- de_tbl |>

@@ -5,11 +5,14 @@ paths:
   results: "outputs/results"
   figures: "outputs/figures"
 
+factors:
+  treatment_levels: ["PBS","Lo","Med","Hi"]   # order matters; first is the reference
+
 params:
   cpm_min: 1
   cpm_min_samples: 3
   ref_group: "PBS"
-  contrasts: ["Lo_vs_PBS","Med_vs_PBS","Hi_vs_PBS"]
+  contrasts: ["Lo_vs_PBS","Med_vs_PBS","Hi_vs_PBS","Lo_vs_Med","Lo_vs_Hi","Med_vs_Hi"]
   lfc_thresh: 1
   fdr_thresh: 0.05
   go_ont: "BP"
