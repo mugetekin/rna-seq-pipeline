@@ -1,3 +1,8 @@
+# RNA-seq pipeline Makefile
+# Each step depends on outputs from the previous one.
+# Run full pipeline:   make all
+# Run individual step: make goi   (or normalize, de, go, qc, gonet, goizoom)
+
 R := "/c/Program Files/R/R-4.3.3/bin/x64/Rscript.exe" --vanilla
 
 all: normalize de go goi qc gonet goizoom
