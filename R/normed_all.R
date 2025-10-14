@@ -491,13 +491,13 @@ out_dir <- "outputs_normed"; dir.create(out_dir, showWarnings = FALSE)
 
 obj <- load_normed_expr("data/normed_cpms_filtered_annot.csv")
 X   <- obj$expr_log; grp <- obj$grp; samples <- colnames(X)
-stopifnot(all(c("PBS","Hi") %in% levels(grp)))
+stopifnot(all(c("PBS","Lo") %in% levels(grp)))
 
-pbs <- which(grp=="PBS"); hi <- which(grp=="Hi")
+pbs <- which(grp=="PBS"); lo <- which(grp=="Lo")
 
 # per-gene Welch t-test with NA-safety
 safe_t <- function(x){
-  a <- x[pbs]; b <- x[hi]
+  a <- x[pbs]; b <- x[lo]
   a <- a[is.finite(a)]; b <- b[is.finite(b)]
   if (length(a) < 2 || length(b) < 2) return(NA_real_)
   t.test(a, b, alternative="two.sided", var.equal=FALSE)$p.value
@@ -505,8 +505,8 @@ safe_t <- function(x){
 
 # compute stats
 mu_pbs <- apply(X[, pbs, drop=FALSE], 1, function(v) mean(v[is.finite(v)], na.rm=TRUE))
-mu_hi  <- apply(X[, hi,  drop=FALSE],  1, function(v) mean(v[is.finite(v)], na.rm=TRUE))
-log2FC <- mu_hi - mu_pbs
+mu_lo  <- apply(X[, lo,  drop=FALSE],  1, function(v) mean(v[is.finite(v)], na.rm=TRUE))
+log2FC <- mu_lo - mu_pbs
 pvals  <- apply(X, 1, safe_t)
 padj   <- p.adjust(pvals, method = "BH")
 
@@ -522,9 +522,9 @@ p1 <- ggplot(res_plot, aes(x = log2FC, y = -log10(padj))) +
   geom_point(alpha = 0.6, size = 1.4) +
   geom_vline(xintercept = c(-1, 1), linetype = 2) +
   geom_hline(yintercept = -log10(0.05), linetype = 2) +
-  labs(title = "Mock Volcano (Hi vs PBS)", x = "log2FC (Hi - PBS)", y = "-log10(adj p)") +
+  labs(title = "Mock Volcano (Lo vs PBS)", x = "log2FC (Lo - PBS)", y = "-log10(adj p)") +
   theme_minimal(base_size = 12)
-ggsave(file.path(out_dir, "DE_Volcano_mock_Hi_vs_PBS.png"), p1, width = 8, height = 6, dpi = 300)
+ggsave(file.path(out_dir, "DE_Volcano_mock_Lo_vs_PBS.png"), p1, width = 8, height = 6, dpi = 300)
 
 # Bar of up/down counts (ignore NA padj)
 up   <- sum(res$padj < 0.05 & res$log2FC > 0, na.rm = TRUE)
@@ -533,13 +533,12 @@ bar  <- tibble(Direction=c("Up","Down"), Count=c(up,down))
 p2 <- ggplot(bar, aes(Direction, Count, fill = Direction)) +
   geom_col(width = 0.6) +
   theme_minimal(base_size = 12) + theme(legend.position = "none") +
-  labs(title = "Mock DEG counts (Hi vs PBS)")
-ggsave(file.path(out_dir, "DE_BarCounts_mock_Hi_vs_PBS.png"), p2, width = 6, height = 5, dpi = 300)
+  labs(title = "Mock DEG counts (Lo vs PBS)")
+ggsave(file.path(out_dir, "DE_BarCounts_mock_Lo_vs_PBS.png"), p2, width = 6, height = 5, dpi = 300)
 
 # write table (keep NAs so downstream knows which were skipped)
-readr::write_csv(res, file.path(out_dir, "DE_Mock_Hi_vs_PBS_results.csv"))
-message("Saved: DE_Mock_Hi_vs_PBS_results.csv + volcano + bar counts")
-
+readr::write_csv(res, file.path(out_dir, "DE_Mock_Lo_vs_PBS_results.csv"))
+message("Saved: DE_Mock_Lo_vs_PBS_results.csv + volcano + bar counts")
 })
 # ---------------------[ END: R/de_summary_normed.R ]---------------------
 
