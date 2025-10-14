@@ -17,3 +17,8 @@ params:
   fdr_thresh: 0.05
   go_ont: "BP"
   go_n_show: 10
+
+goi:
+  mode: "fallback_if_empty"   # options: "go_focus_only" | "fallback_if_empty" | "de_only"
+  strict_n: 150
+  broad_n: 300
