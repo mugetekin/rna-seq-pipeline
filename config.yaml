@@ -16,7 +16,9 @@ params:
   lfc_thresh: 1
   fdr_thresh: 0.05
   go_ont: "BP"
-  go_n_show: 10
+  go_n_show: 30
+  gene_set_kind: "GO"          
+  species: "Mus musculus"
 
 goi:
   mode: "fallback_if_empty"   # options: "go_focus_only" | "fallback_if_empty" | "de_only"
