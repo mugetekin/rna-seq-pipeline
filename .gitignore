@@ -22,6 +22,9 @@ data/*
 !data/README.md
 !data/*.csv
 !data/*.tsv
+!data/raw_annotated_combined.counts
+!data/normed_cpms_filtered_annot.csv
+
 */00LOCK*
 
 # Ignore R history even inside results
