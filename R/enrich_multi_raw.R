@@ -1,5 +1,36 @@
 #!/usr/bin/env Rscript
 
+#' ------------------------------------------------------------------------------
+#' Multi-contrast pathway enrichment (fgsea) on DE outputs
+#'
+#' Pipeline:
+#'   1) Load config + raw counts (for CPM-based violin plots)
+#'   2) Read per-contrast DE tables (from limma/edgeR step)
+#'   3) Rank genes per contrast and run fgsea (Hallmark or GO:BP; mouse-native)
+#'   4) Aggregate results across contrasts and export:
+#'        - Long summary table of all fgsea results
+#'        - Heatmap of NES per contrast (with FDR stars)
+#'        - UpSet and Venn diagrams of significant pathways
+#'        - Violin plots of CPM for leading-edge sets (shared + per-contrast)
+#'
+#' Inputs (config.yaml):
+#'   paths:
+#'     counts   : raw annotated counts table (for CPM violins)
+#'     results  : dir containing DE_<contrast>.tsv tables
+#'     figures  : base dir for figures (we write under figures/enrich)
+#'   params:
+#'     contrasts     : vector like ["Lo_vs_PBS", "Med_vs_PBS", "Hi_vs_PBS"]
+#'     fdr_thresh    : FDR cutoff for significance (default 0.05)
+#'     go_n_show     : #top pathways to display in heatmap (default 30)
+#'     species       : "Mus musculus" by default
+#'     gene_set_kind : "H" (Hallmark) or "GO" (GO:BP via M5)
+#'
+#' Notes:
+#'   - Gene ranking tries (1) signed -log10(P), else (2) signed -log10(adj.P),
+#'     else (3) signed |t|, else falls back to signed |logFC|.
+#'   - fgseaMultilevel is attempted first (eps=0), falls back to fgsea(nperm=1e4).
+#' ------------------------------------------------------------------------------
+
 suppressPackageStartupMessages({
   library(tidyverse); library(data.table); library(yaml)
   library(edgeR)
@@ -14,7 +45,9 @@ safe_dir <- function(...) { d <- file.path(...); dir.create(d, showWarnings = FA
 say <- function(...) cat(paste0(..., "\n"))
 load_cfg <- function(path = "config.yaml") yaml::read_yaml(path)
 
-# ---------- plotting helpers (embedded) ----------
+# ----------------------------[ Plotting helpers ]----------------------------
+
+#' NES heatmap across contrasts with FDR asterisks
 plot_enrich_heatmap <- function(NES, FDR, out_png, title = "Pathway NES across contrasts") {
   if (nrow(NES) == 0 || ncol(NES) == 0) { say("Heatmap skipped: empty NES matrix"); return(invisible(FALSE)) }
   pal <- colorRamp2(c(-2, 0, 2), c("#3b4cc0", "#f7f7f7", "#b40426"))
@@ -29,6 +62,7 @@ plot_enrich_heatmap <- function(NES, FDR, out_png, title = "Pathway NES across c
   say("Saved heatmap: ", out_png); invisible(TRUE)
 }
 
+#' UpSet plot for overlaps of significant pathways across contrasts
 plot_enrich_upset <- function(sig_list, out_png) {
   if (length(sig_list) < 2) { say("UpSet skipped: <2 contrasts"); return(invisible(FALSE)) }
   if (all(lengths(sig_list) == 0)) { say("UpSet skipped: no significant pathways in any contrast"); return(invisible(FALSE)) }
@@ -42,6 +76,7 @@ plot_enrich_upset <- function(sig_list, out_png) {
   say("Saved UpSet:   ", out_png); invisible(TRUE)
 }
 
+#' Venn diagram for 2–5 contrasts
 plot_enrich_venn <- function(sig_list, out_png) {
   if (length(sig_list) > 5 || length(sig_list) < 2) { say("Venn skipped: need 2–5 contrasts"); return(invisible(FALSE)) }
   if (all(lengths(sig_list) == 0)) { say("Venn skipped: no significant pathways"); return(invisible(FALSE)) }
@@ -55,20 +90,25 @@ plot_enrich_venn <- function(sig_list, out_png) {
   say("Saved Venn:    ", out_png); invisible(TRUE)
 }
 
+#' Violin of mean CPM across samples for leading-edge genes (by contrast or shared)
 plot_enrich_violin <- function(cpm_long, genes, out_png, title = "Leading-edge mean CPM") {
   if (length(genes) == 0) { say("Violin skipped: empty gene set"); return(invisible(FALSE)) }
   df <- cpm_long %>% filter(gene %in% genes) %>% group_by(sample, group) %>%
     summarize(meanCPM = mean(value, na.rm = TRUE), .groups = "drop")
   if (nrow(df) == 0) { say("Violin skipped: no CPM rows for gene set"); return(invisible(FALSE)) }
   p <- ggplot(df, aes(group, meanCPM)) +
-    geom_violin(trim = FALSE) + geom_jitter(width = 0.15, alpha = 0.6, size = 1.1) +
-    labs(title = title, x = NULL, y = "Mean CPM of leading-edge genes") + theme_bw(base_size = 12)
+    geom_violin(trim = FALSE) +
+    geom_jitter(width = 0.15, alpha = 0.6, size = 1.1) +
+    labs(title = title, x = NULL, y = "Mean CPM of leading-edge genes") +
+    theme_bw(base_size = 12)
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
   ggsave(out_png, p, width = 8, height = 5, dpi = 200)
   say("Saved violin:  ", out_png); invisible(TRUE)
 }
 
-# ---------- I/O helpers ----------
+# ----------------------------[ I/O helpers ]----------------------------
+
+#' Read counts table and ensure a "gene" column (SYMBOL or ID)
 read_counts <- function(path) {
   dt <- fread(path, data.table = FALSE)
   nms <- names(dt); lname <- tolower(nms)
@@ -82,6 +122,7 @@ read_counts <- function(path) {
   dt
 }
 
+#' Infer group from sample name (prefix)
 infer_group <- function(nms) {
   case_when(
     str_detect(nms, regex("^PBS[_-]", ignore_case=TRUE)) ~ "PBS",
@@ -92,7 +133,9 @@ infer_group <- function(nms) {
   )
 }
 
-# Mouse-native sets: Hallmark = MH; GO:BP = M5 + subcollection "GO:BP"
+#' Mouse-native gene sets:
+#'   - "H": Hallmark (MH)
+#'   - "GO": GO:BP (M5, subcollection = "GO:BP")
 get_genesets <- function(species="Mus musculus", kind=c("H","GO")) {
   kind <- match.arg(kind)
   if (kind=="H") {
@@ -105,6 +148,7 @@ get_genesets <- function(species="Mus musculus", kind=c("H","GO")) {
   list(pathways = split(gs$gene_symbol, gs$gs_name), label=label)
 }
 
+#' Read a DE table and derive a ranked metric for fgsea
 read_de <- function(dir="outputs/results", contrast) {
   f <- file.path(dir, sprintf("DE_%s.tsv", contrast))
   if (!file.exists(f)) stop("Missing DE results: ", f)
@@ -112,14 +156,14 @@ read_de <- function(dir="outputs/results", contrast) {
   lower <- tolower(names(df))
   find1 <- function(cands) { ix <- which(lower %in% tolower(cands)); if (length(ix)) names(df)[ix[1]] else NULL }
 
+  # Ensure 'gene' column exists
   gcol <- find1(c("gene","Gene","symbol","SYMBOL","gene_symbol","genesymbol","hgnc_symbol","gene.name","genename","id"))
   if (!is.null(gcol) && !"gene" %in% names(df)) df$gene <- df[[gcol]]
 
+  # Standardize key columns when present
   pcol   <- find1(c("P.Value","p.value","pvalue","pval","pr(>|t|)","p.value...wald","pval_wald"))
   adjcol <- find1(c("adj.P.Val","adj.p.val","fdr","padj","qval","adjp","adj.p.value"))
   tcol   <- find1(c("t","T","stat","statistic","wald.stat","score"))
-
-  if (!"gene" %in% names(df)) stop("No gene column in ", f, " (looked for Gene/gene/SYMBOL/symbol/id).")
   if (!"logFC" %in% names(df)) {
     lcol <- find1(c("logFC","logfc","log2fc","log2foldchange","log2_fold_change"))
     if (!is.null(lcol)) names(df)[match(lcol, names(df))] <- "logFC"
@@ -128,6 +172,9 @@ read_de <- function(dir="outputs/results", contrast) {
   if (!is.null(adjcol) && !"adj.P.Val" %in% names(df)) names(df)[match(adjcol, names(df))] <- "adj.P.Val"
   if (!is.null(tcol)   && !"t"         %in% names(df)) names(df)[match(tcol,   names(df))] <- "t"
 
+  if (!"gene" %in% names(df)) stop("No gene column in ", f, " (looked for Gene/gene/SYMBOL/symbol/id).")
+
+  # Ranking preference: signed -log10(P) > signed -log10(FDR) > signed |t| > signed |logFC|
   if ("P.Value" %in% names(df)) {
     df$rank_metric <- with(df, sign(logFC) * -log10(pmax(P.Value, 1e-300)))
   } else if ("adj.P.Val" %in% names(df)) {
@@ -141,12 +188,15 @@ read_de <- function(dir="outputs/results", contrast) {
   df %>% filter(!is.na(gene) & gene != "")
 }
 
+#' Collapse to 1 rank per gene (max |rank_metric|), sort desc
 make_ranks <- function(de_df) {
   de_df %>% group_by(gene) %>% slice_max(order_by=abs(rank_metric), n=1, with_ties=FALSE) %>%
     ungroup() %>% arrange(desc(rank_metric)) %>% { setNames(.$rank_metric, .$gene) }
 }
 
-# ----------------------------- MAIN ---------------------------------------
+# ----------------------------[ MAIN ]----------------------------
+
+# --- Load config / paths
 cfg <- load_cfg()
 counts_path <- cfg$paths$counts %||% "data/raw_annotated_combined.counts"
 de_dir      <- cfg$paths$results %||% "outputs/results"
@@ -160,9 +210,9 @@ n_show      <- cfg$params$go_n_show %||% 30
 species     <- cfg$params$species %||% "Mus musculus"
 gs_kind     <- cfg$params$gene_set_kind %||% "H"
 
+# --- CPMs from raw counts (for leading-edge violin summaries)
 say("Loading raw counts from: ", counts_path)
 raw <- read_counts(counts_path)
-
 sample_cols <- setdiff(
   names(raw),
   c("gene","Gene","GeneID","ENTREZID","SYMBOL","symbol","id","ID","Ensembl","ensembl","EnsemblID","ensembl_id")
@@ -176,18 +226,21 @@ cpm_long <- as.data.frame(cpm_mat) %>% rownames_to_column("gene") %>%
   pivot_longer(-gene, names_to="sample", values_to="value") %>%
   mutate(group = infer_group(sample))
 
+# --- Get gene sets
 say("Loading gene sets (mouse-native, ", ifelse(gs_kind=='H','MH','M5/GO:BP'), ") ...")
 gs <- get_genesets(species=species, kind=gs_kind)
 pathways <- gs$pathways; gs_label <- gs$label
 
+# --- Run fgsea per contrast
 say("Running fgsea for contrasts: ", paste(contrasts, collapse=", "))
 all_res <- list(); sig_sets <- list()
 for (ct in contrasts) {
   say("  - ", ct)
   de <- read_de(dir=de_dir, contrast=ct)
   ranks <- make_ranks(de)
+  if (!length(ranks)) { say("    (no ranks; skipping ", ct, ")"); next }
 
-  # Prefer fgseaMultilevel with eps=0 to better estimate tiny p-values; fallback to fgsea(nperm=10000)
+  # Prefer exact multilevel; fall back to permutational if needed
   fg <- try({
     fgseaMultilevel(pathways=pathways, stats=ranks, minSize=10, maxSize=500, eps=0)
   }, silent=TRUE)
@@ -202,28 +255,40 @@ for (ct in contrasts) {
   sig_sets[[ct]] <- fg %>% filter(padj < fdr_thr) %>% pull(pathway)
 }
 
+# --- Aggregate across contrasts
 say("Building summary and visualizations...")
-comb <- bind_rows(all_res); comb$padj[is.na(comb$padj)] <- 1
+comb <- bind_rows(all_res)
+if (!nrow(comb)) {
+  say("No fgsea results to summarize. Check DE inputs / contrasts."); quit(status = 0)
+}
+comb$padj[is.na(comb$padj)] <- 1
+
+# Pick top pathways by best (min) FDR over contrasts
 minpadj <- comb %>% group_by(pathway) %>% summarize(min_padj=min(padj, na.rm=TRUE), .groups="drop")
 top_paths <- minpadj %>% arrange(min_padj) %>% slice_head(n=max(n_show,30)) %>% pull(pathway)
 
+# Build NES/FDR matrices aligned to contrasts
 NES <- matrix(0, nrow=length(top_paths), ncol=length(contrasts), dimnames=list(top_paths, contrasts))
 FDR <- matrix(1, nrow=length(top_paths), ncol=length(contrasts), dimnames=list(top_paths, contrasts))
 for (ct in contrasts) {
+  if (is.null(all_res[[ct]])) next
   fg <- all_res[[ct]]; idx <- match(top_paths, fg$pathway); keep <- !is.na(idx)
   NES[keep, ct] <- fg$NES[idx[keep]]; FDR[keep, ct] <- fg$padj[idx[keep]]
 }
 
+# Save long-form summary
 fwrite(comb, file.path(out_tab_dir, "summary_enrichment_long.csv"))
 say("Saved table:   ", file.path(out_tab_dir, "summary_enrichment_long.csv"))
 
-# ---- FIGURES ----
+# --- Figures
 plot_enrich_heatmap(NES, FDR, file.path(fig_dir, sprintf("Heatmap_NES_%s.png", gs_label)),
                     title = paste0(gs_label, " pathways (NES)"))
 plot_enrich_upset(sig_sets, file.path(fig_dir, sprintf("UpSet_%s.png", gs_label)))
 plot_enrich_venn(sig_sets,  file.path(fig_dir, sprintf("Venn_%s.png",  gs_label)))
 
-# Leading-edge violins
+# --- Leading-edge summaries + violins
+
+# 1) Shared term: most frequent significant pathway across contrasts
 shared_counts <- sort(table(unlist(sig_sets)), decreasing=TRUE)
 if (length(shared_counts)) {
   shared_term <- names(shared_counts)[1]
@@ -238,7 +303,10 @@ if (length(shared_counts)) {
                        title = sprintf("Leading-edge mean CPM: %s (shared)", shared_term))
   }
 }
+
+# 2) Per-contrast: unique top term (or top by padj if no unique)
 for (ct in contrasts) {
+  if (is.null(all_res[[ct]])) next
   uniq <- setdiff(sig_sets[[ct]], unique(unlist(sig_sets[names(sig_sets)!=ct])))
   pick <- if(length(uniq)>0) uniq[1] else (all_res[[ct]] %>% arrange(padj) %>% slice(1) %>% pull(pathway))
   fe <- all_res[[ct]] %>% filter(pathway==pick) %>% pull(leadingEdge) %>% .[[1]]
