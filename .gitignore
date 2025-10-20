@@ -12,10 +12,15 @@ outputs/*
 !outputs/figures/**
 !outputs/results/**
 !outputs/rds/**
+!outputs/enrichment/
+!outputs/enrichment/README.md
+
+
 # normalized analysis output
 outputs_normed/*
 !outputs_normed/.gitkeep
 !outputs_normed/**
+
 
 
 data/*
