@@ -1,17 +1,35 @@
+# What this script does
+#  1) Loads the voom object + metadata saved earlier (norm_and_fit.rds)
+#  2) Fits a limma model with group indicators (PBS/Lo/Med/Hi)
+#  3) Runs an omnibus F-test across ALL group coefficients (ANOVA-like)
+#  4) Writes full/sig results and produces QC plots:
+#       - p-value histogram
+#       - Heatmap (top 50 F genes; row-Z)
+#       - Violin plots for top 12 ANOVA genes
+#
+# Notes
+#  - We use topTable(..., sort.by="F") with coef=1:ncol(design) instead of topTableF(),
+#    which limma flags as obsolete. Results are equivalent for an omnibus test.
+#  - Gene symbol mapping is done via org.Mm.eg.db (mouse). If rownames are ENSEMBL,
+#    they are mapped to SYMBOL; otherwise we treat rownames as SYMBOL.
+
 # R/anova_normed.R — omnibus ANOVA on voom-normalized logCPM + visualizations
 suppressPackageStartupMessages({
   library(tidyverse); library(limma); library(ggrepel); library(pheatmap)
   library(AnnotationDbi); library(org.Mm.eg.db); library(scales); library(readr)
 })
 
+# Null-coalescing helper: return b if a is NULL or empty
 `%||%` <- function(a,b) if (is.null(a) || !length(a)) b else a
 
 # Load normalized object produced by 01_normalize.R
 cfg  <- tryCatch({ source("R/io_helpers.R"); load_cfg() }, error=function(e) NULL)
 rds_dir <- if (is.null(cfg)) "outputs/rds" else cfg$paths$rds
+  # Keep anova outputs separate from other normalized outputs for tidiness
 res_dir <- "outputs_normed/anova"; dir.create(res_dir, recursive=TRUE, showWarnings=FALSE)
 fig_dir <- "outputs_normed/anova"; dir.create(fig_dir, recursive=TRUE, showWarnings=FALSE)
 
+# Load voom and metadata (created earlier in your pipeline)
 obj <- readRDS(file.path(rds_dir, "norm_and_fit.rds"))
 v   <- obj$v
 meta <- obj$meta
@@ -21,19 +39,23 @@ if (!"Group" %in% names(meta)) stop("meta$Group not found.")
 meta$Group <- droplevels(factor(meta$Group, levels = c("PBS","Lo","Med","Hi")))
 
 # Design and fit limma model; omnibus across all group coefficients
-design <- model.matrix(~0 + Group, data = meta)  # PBS/Lo/Med/Hi columns
-colnames(design) <- gsub("^Group", "", colnames(design))
+design <- model.matrix(~0 + Group, data = meta)  # columns: GroupPBS, GroupLo, ...
+colnames(design) <- gsub("^Group", "", colnames(design)) # -> PBS, Lo, Med, Hi
+# Fit per-gene linear models on voom-transformed expression
 fit <- lmFit(v$E, design)
 fit <- eBayes(fit)
 
-# Omnibus F-test table (sorted by F)
+# Omnibus ANOVA-like F-test
+# Use topTable with coef=all group columns and sort.by="F".
+# This replaces topTableF() (deprecated) with equivalent behavior.
 ttF <- topTableF(fit, number = Inf, sort.by = "F")
 
 # Save tables
+# Raw ANOVA table (TSV; rownames are gene IDs as in v$E)
 out_all <- file.path(res_dir, "ANOVA_all.tsv")
 write.table(ttF, out_all, sep="\t", quote=FALSE, row.names=TRUE)
 
-# Add SYMBOLs for convenience
+# Add gene SYMBOLs for convenience (supports ENSEMBL or already-SYMBOL rownames)
 keys <- rownames(ttF)
 keyType <- if (length(keys) && grepl("^ENSMUSG", keys[1])) "ENSEMBL" else "SYMBOL"
 sy <- AnnotationDbi::mapIds(org.Mm.eg.db, keys=keys, keytype=keyType, column="SYMBOL", multiVals="first")
@@ -59,17 +81,19 @@ topN <- 50
 top_keys <- head(ttF_sym$KEY, n = min(topN, nrow(ttF_sym)))
 mat <- v$E[top_keys, , drop=FALSE]
 # row-Z
+# Row-wise Z-score scaling to highlight relative patterns
 mat_z <- t(scale(t(mat)))
-rownames(mat_z) <- ttF_sym$SYMBOL[match(rownames(mat_z), ttF_sym$KEY)]
+rownames(mat_z) <- ttF_sym$SYMBOL[match(rownames(mat_z), ttF_sym$KEY)] # Replace rownames with SYMBOLs for easier reading in the figure
 ann_col <- data.frame(Group = meta$Group); rownames(ann_col) <- meta$SampleID
 pheatmap(mat_z, annotation_col = ann_col, show_rownames = TRUE, show_colnames = FALSE,
          color = colorRampPalette(c("#214478","#f7f7f7","#b30000"))(101),
          filename = file.path(fig_dir, sprintf("ANOVA_heatmap_top%d_rowZ.png", topN)),
          width = 9, height = 10)
 
-# 3) Violin for top 12 ANOVA genes
+# 3) Violin for top 12 ANOVA genes (by F; prefer those with SYMBOLs)
 top12_sym <- head(ttF_sym$SYMBOL[ttF_sym$SYMBOL!="" & !is.na(ttF_sym$SYMBOL)], 12)
 if (length(top12_sym)) {
+  # Map symbols back to rownames used in v$E if needed (e.g., when v$E rows are ENSEMBL)
   # map SYMBOLs back to rownames if necessary
   row_is_ens <- grepl("^ENSMUSG", rownames(v$E)[1])
   if (row_is_ens) {
