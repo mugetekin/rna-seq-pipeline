@@ -1,4 +1,21 @@
 # 03_go_enrichment.R — GO GSEA + ORA with robust ID handling (mouse)
+# What this script does
+#   • Loads voom/DE outputs and performs:
+#       - GSEA (clusterProfiler::gseGO) on ranked genes (per contrast)
+#       - ORA  (clusterProfiler::enrichGO) on DE gene sets (per contrast)
+#   • Handles multiple gene ID types (SYMBOL / ENSEMBL / ALIAS / ENTREZ)
+#   • Saves RDS with all GO results + optional TSV tables
+#
+# Inputs (from config.yaml):
+#   paths$rds     : directory containing norm_and_fit.rds and de_tables.rds
+#   paths$results : directory to write GO tables under <results>/go
+#   params$lfc_thresh, params$fdr_thresh, params$go_ont ("BP"|"MF"|"CC")
+#
+# Outputs:
+#   <paths$rds>/go_objs.rds
+#   <paths$results>/go/GO_{GSEA,ORA}_{lo,med,hi}.tsv  (if any)
+
+
 source("R/io_helpers.R")
 suppressPackageStartupMessages({
   library(tidyverse)
@@ -15,6 +32,8 @@ res_dir <- cfg$paths$results
 dir.create(rds_dir, showWarnings = FALSE, recursive = TRUE)
 
 # --- inputs ---
+# norm_and_fit.rds: contains v (voom), meta, etc.  (we use v for defining the universe)
+# de_tables.rds   : contains tt_lo/tt_med/tt_hi (legacy) and a named list of DE tables
 obj    <- readRDS(file.path(rds_dir, "norm_and_fit.rds"))
 de_obj <- readRDS(file.path(rds_dir, "de_tables.rds"))
 tt_lo  <- de_obj$tt_lo
@@ -46,6 +65,7 @@ safe_map <- function(keys, keytype){
   }
 }
 
+# Try multiple keytypes and choose the one that maps the most keys to ENTREZ
 map_to_entrez_any <- function(keys){
   if (!length(keys)) return(character(0))
   # Try multiple keytypes safely; prefer SYMBOL/ENSEMBL/ALIAS/ENTREZID
@@ -65,11 +85,13 @@ map_to_entrez_any <- function(keys){
   results[[best]]
 }
 
+# Build GSEA ranking: named numeric vector (ENTREZID → metric), decreasing
 make_rank <- function(tt){
   if (is.null(tt) || !nrow(tt)) return(NULL)
   s  <- as.data.frame(tt)
-  rn <- rownames(s)
-  eg <- map_to_entrez_any(rn)
+  rn <- rownames(s)                                   # gene IDs as in DE result rownames
+  eg <- map_to_entrez_any(rn)                         # map to ENTREZ
+   # Prefer t-stat if available; otherwise fall back to a signed significance measure
   metric <- if ("t" %in% colnames(s)) s$t else sign(s$logFC) * -log10(s$P.Value %||% s$adj.P.Val)
   names(metric) <- eg
   metric <- metric[!is.na(names(metric)) & names(metric) != ""]
@@ -77,6 +99,7 @@ make_rank <- function(tt){
   tapply(metric, INDEX = names(metric), FUN = mean) |> sort(decreasing = TRUE)
 }
 
+# Build ORA gene vector: ENTREZ IDs passing (|logFC| ≥ lfc & FDR ≤ thresh)
 deg_vector <- function(tt, lfc = cfg$params$lfc_thresh %||% 1, fdr = cfg$params$fdr_thresh %||% 0.05){
   if (is.null(tt) || !nrow(tt)) return(character(0))
   s  <- as.data.frame(tt)
