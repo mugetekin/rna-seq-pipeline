@@ -1,4 +1,16 @@
 # 05_qc_and_volcano.R — QC, volcano/MA/PCA/histograms (dynamic coef names)
+# What this script does
+#   1) Loads voom/limma objects produced earlier
+#   2) Generates core QC: library sizes, MDS, voom mean–variance
+#   3) For each requested/available contrast:
+#        - Volcano (plain + labeled), MA, and P-value histogram
+#   4) Keeps legacy Lo/Med/Hi panels (if those contrasts exist)
+#   5) PCA on voom E with 95% ellipses by group
+#
+# Notes
+#  - Contrast names are normalized: "Lo - PBS" -> "Lo_vs_PBS"
+#  - Plots are saved under <paths$figures> from config.yaml
+
 source("R/io_helpers.R")
 suppressPackageStartupMessages({
   library(edgeR); library(limma); library(tidyverse)
@@ -15,6 +27,7 @@ annot <- obj$annot; meta <- obj$meta; dge <- obj$dge; v <- obj$v; fit2 <- obj$fi
 dir.create(cfg$paths$figures, showWarnings = FALSE, recursive = TRUE)
 
 # --- coefficient name helpers: map "Lo - PBS" -> "Lo_vs_PBS" ---
+# Normalize limma coef names "A - B" -> "A_vs_B" and back-map when needed
 norm_name   <- function(x) gsub(" - ", "_vs_", x, fixed = TRUE)
 pretty_name <- function(x) gsub("_vs_", " vs ", x, fixed = TRUE)
 avail_raw   <- colnames(fit2$coefficients)
