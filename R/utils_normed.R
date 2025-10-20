@@ -1,39 +1,43 @@
 suppressPackageStartupMessages({
-  library(tidyverse); library(ggplot2)             # wrangling + plots
+  library(data.table)
+  library(tidyverse)
 })
 
-# Simple helper: cap extreme values (useful before plotting log fold-changes)
-cap_values <- function(x, lower = -6, upper = 6) {
-  pmax(lower, pmin(upper, x))                      # clamp between bounds
-}
+# read normalized CPM file, build log2 matrix and groups
+load_normed_expr <- function(csv = "data/normed_cpms_filtered_annot.csv") {
+  stopifnot(file.exists(csv))
+  dat <- data.table::fread(csv, data.table = FALSE)
 
-# Build a volcano-friendly tibble from a limma top table
-volcano_df <- function(tt, lfc_col = "logFC", p_col = "adj.P.Val", gene_col = "gene",
-                       lfc_thresh = 1, fdr_thresh = 0.05) {
-  tt %>%
-    transmute(
-      gene = .data[[gene_col]],                    # gene name/label
-      logFC = .data[[lfc_col]],                    # effect size (log2 fold change)
-      negLog10FDR = -log10(pmax(.data[[p_col]], 1e-300)),  # display-friendly scale
-      sig = abs(.data[[lfc_col]]) >= lfc_thresh & .data[[p_col]] <= fdr_thresh  # highlight
-    )
-}
+  # expression matrix with SYMBOL fallback
+  gene_cols <- c("id","SYMBOL","gene_type")
+  expr <- dat[, !(names(dat) %in% gene_cols), drop = FALSE]
+  genes <- ifelse(is.na(dat$SYMBOL) | dat$SYMBOL=="", dat$id, dat$SYMBOL)
+  rownames(expr) <- make.unique(genes)
 
-# Minimal volcano plot factory (returns a ggplot object)
-make_volcano <- function(df, title = NULL) {
-  ggplot(df, aes(x = logFC, y = negLog10FDR)) +
-    geom_point(aes(alpha = !sig), size = 1.2) +    # auto deemphasize non-significant points
-    geom_vline(xintercept = c(-1, 1), linetype = 2) +
-    geom_hline(yintercept = -log10(0.05), linetype = 2) +
-    labs(title = title, x = "log2 fold-change", y = "-log10 FDR") +
-    guides(alpha = "none") +
-    theme_minimal(base_size = 12)
-}
+  # numeric + log2(CPM+1)
+  expr_num <- as.matrix(data.frame(lapply(as.data.frame(expr), as.numeric),
+                                   check.names = FALSE, row.names = rownames(expr)))
+  expr_log <- log2(expr_num + 1)
 
-# Safe writer for figures
-save_png <- function(plot, path, width = 1800, height = 1400, res = 150) {
-  dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE) # ensure folder
-  png(path, width = width, height = height, res = res)
-  print(plot)
-  dev.off()
+  # ---- KEEP columns even if they have some NAs ----
+  # keep rows (genes) that have at least 2 finite values (so var is defined)
+  keep_rows <- apply(expr_log, 1, function(x) sum(is.finite(x)) >= 2)
+  expr_log  <- expr_log[keep_rows, , drop = FALSE]
+
+  # keep columns that have at least 1 finite value
+  keep_cols <- apply(expr_log, 2, function(x) any(is.finite(x)))
+  expr_log  <- expr_log[, keep_cols, drop = FALSE]
+
+  # groups from sample id prefix
+  sample_ids <- colnames(expr_log)
+  grp <- dplyr::case_when(
+    startsWith(sample_ids,"PBS") ~ "PBS",
+    startsWith(sample_ids,"Lo")  ~ "Lo",
+    startsWith(sample_ids,"Med") ~ "Med",
+    startsWith(sample_ids,"Hi")  ~ "Hi",
+    TRUE ~ "Other"
+  )
+  grp <- factor(grp, levels = c("PBS","Lo","Med","Hi","Other"))
+
+  list(expr_log = expr_log, grp = grp)
 }
