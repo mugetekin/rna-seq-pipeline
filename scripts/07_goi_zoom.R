@@ -1,4 +1,16 @@
 # 07_goi_zoom.R — Deep dive for selected GOI
+# What this script does
+#   1) Loads normalized voom/limma objects, DE tables, and optional GO results
+#   2) Robustly matches a user-provided GOI list to voom E (case-insensitive fallback)
+#   3) Extracts per-contrast limma topTables dynamically (handles missing coefs)
+#   4) Plots:
+#        • Lollipop (logFC ± CI) across contrasts
+#        • Venn/overlap summaries of significant UP genes
+#        • Correlation heatmap (GOI × GOI)
+#        • Pairwise scatter matrix (if GGally is available)
+#        • Bar + jitter with mean±SEM
+#        • Optional 2-set Venns vs Lo UP/DOWN and leading-edge membership CSV
+#   5) Writes figures to <paths$figures>/goi_zoom and tables to <paths$results>/goi_zoom
 
 source("R/io_helpers.R")
 suppressPackageStartupMessages({
@@ -19,6 +31,7 @@ suppressPackageStartupMessages({
   if (requireNamespace("DOSE", quietly = TRUE)) library(DOSE)
 })
 
+# Null-coalescing for config fields
 `%||%` <- function(a,b) if (!is.null(a)) a else b
 
 cfg   <- load_cfg()
@@ -30,6 +43,7 @@ obj3  <- if (file.exists(goes)) readRDS(goes) else NULL
 annot <- obj1$annot; meta <- obj1$meta; dge <- obj1$dge; v <- obj1$v; fit2 <- obj1$fit2
 
 # ---------- parameters ----------
+# Edit the GOI vector below or read from config if you prefer.
 goi     <- c("Bub1","Cenpi","Esco2","Rpl36-ps12")
 fdr_thr <- cfg$params$fdr_thresh %||% 0.05
 lfc_thr <- cfg$params$lfc_thresh %||% 1
@@ -39,6 +53,7 @@ dir.create(outF, showWarnings = FALSE, recursive = TRUE)
 dir.create(outR, showWarnings = FALSE, recursive = TRUE)
 
 # ---------- 1) Robust GOI matching in voom E ----------
+# Try exact rowname match first; if missing, retry case-insensitive equality.
 rnames <- rownames(v$E)
 match_sym <- match(goi, rnames)
 if (any(is.na(match_sym))) {
@@ -48,9 +63,10 @@ if (any(is.na(match_sym))) {
   }
 }
 present <- !is.na(match_sym)
-stopifnot(any(present))
-goi_found <- goi[present]
+stopifnot(any(present))   # hard-stop if none are present
+goi_found <- goi[present]   # keep order as provided
 
+# Long-form data (voom logCPM) for plotting
 mat <- v$E[goi_found, , drop = FALSE]
 grp <- factor(meta$Group[match(colnames(mat), meta$SampleID)],
               levels = c("PBS","Lo","Med","Hi"))
