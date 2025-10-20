@@ -13,7 +13,7 @@ outputs/*
 !outputs/results/**
 !outputs/rds/**
 !outputs/enrichment/
-!outputs/enrichment/README.md
+!outputs/**/README.md
 
 
 # normalized analysis output
