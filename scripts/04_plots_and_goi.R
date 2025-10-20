@@ -1,3 +1,19 @@
+# What this script does
+#   1) Loads normalized objects (voom), DE results, and optional GO results
+#   2) Builds a per-gene table combining DE from Lo/Med/Hi, adds SYMBOLs and QC flags
+#   3) Extracts a GO-focused set of symbols from GSEA results (if available)
+#   4) Ranks genes by a composite score (GO focus, direction consistency, |logFC|)
+#   5) Writes strict/broad GOI shortlists + generates violin / heatmap / bar+SEM plots
+#
+# Config knobs (config.yaml):
+#   - params$fdr_thresh, params$lfc_thresh
+#   - goi$mode       : "fallback_if_empty" (default) | "de_only" | "go_focus_only"
+#   - goi$strict_n   : (default 150)
+#   - goi$broad_n    : (default 300)
+# Paths:
+#   - Reads <paths$rds>/norm_and_fit.rds and de_tables.rds (+ optional go_objs.rds)
+#   - Writes CSVs to <paths$results>/goi/ and figures to <paths$figures>/goi/
+
 # scripts/04_plots_and_goi.R — GOI shortlist + plots (configurable fallback)
 source("R/io_helpers.R")
 suppressPackageStartupMessages({
@@ -31,11 +47,13 @@ safe_symbol_map <- function(keys){
     error = function(e) setNames(keys, keys)
   )
 }
+# Find the first present column among candidates
 find_col <- function(nms, candidates) {
   cand <- candidates[candidates %in% nms]
   if (length(cand)) cand[1] else NA_character_
 }
 
+# Normalize a DE table into KEY / logFC_* / FDR_* columns
 pick_de <- function(tt, lbl){
   if (is.null(tt) || !nrow(tt))
     return(tibble(KEY=character(), !!paste0("logFC_", lbl):=numeric(), !!paste0("FDR_", lbl):=numeric()))
@@ -51,6 +69,7 @@ de_tbl <- list(lo=tt_lo, med=tt_med, hi=tt_hi) |>
   purrr::imap(~pick_de(.x, .y)) |>
   purrr::reduce(full_join, by="KEY")
 
+# SYMBOLs + per-contrast pass flags + direction-consistency + mean |logFC|
 sym_map <- safe_symbol_map(de_tbl$KEY)
 de_tbl <- de_tbl |>
   mutate(SYMBOL = unname(sym_map[KEY]),
@@ -59,12 +78,14 @@ de_tbl <- de_tbl |>
          pass_hi  = !is.na(FDR_hi)  & FDR_hi  <= (cfg$params$fdr_thresh %||% 0.05) & abs(logFC_hi)  >= (cfg$params$lfc_thresh %||% 1),
          pass_any = pass_lo | pass_med | pass_hi,
          mean_abs_logFC = rowMeans(cbind(abs(logFC_lo), abs(logFC_med), abs(logFC_hi)), na.rm = TRUE),
+         # Direction-consistent if at least 2 non-NA logFCs share the same sign
          dir_consistent = {
            s <- c(logFC_lo, logFC_med, logFC_hi); non_na <- s[!is.na(s)]
            length(non_na) >= 2 && all(sign(non_na) == sign(non_na[1]))
          })
 
 # --- extract GO focus ---
+# Extract up to n_terms*3 SYMBOLs from top GSEA terms across Lo/Med/Hi
 extract_symbols_from_gsea <- function(g, n_terms = 12){
   df <- as.data.frame(g)
   if (is.null(df) || !nrow(df)) return(character(0))
@@ -86,6 +107,7 @@ goi_mode <- cfg$goi$mode %||% "fallback_if_empty"
 strict_n <- cfg$goi$strict_n %||% 150
 broad_n  <- cfg$goi$broad_n  %||% 300
 
+# Fallback: pick top-N by mean |logFC|
 pick_top_de <- function(n=300) {
   de_tbl |>
     arrange(desc(mean_abs_logFC)) |>
