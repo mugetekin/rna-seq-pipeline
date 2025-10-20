@@ -1,4 +1,14 @@
 # GO emap + cnet plots
+# What this script does
+#   • Loads GO results (GSEA/ORA) and DE tables
+#   • Draws emap (term–term similarity) plots via enrichplot::emapplot
+#   • Draws cnet (gene–term) plots via enrichplot::cnetplot
+#
+# Notes
+#   • cnetplot's foldChange must be a **named numeric vector** mapping each geneID
+#     (same ID space as the enrichment object, here ENTREZID) to a value (e.g., logFC).
+#   • We auto-derive per-contrast ENTREZ→logFC vectors from de_tables.rds.
+
 source("R/io_helpers.R")
 suppressPackageStartupMessages({
   library(clusterProfiler); library(enrichplot); library(org.Mm.eg.db)
