@@ -1,3 +1,17 @@
+# Export per-contrast DE tables from limma fit (created in step 01).
+# - Loads RDS bundle (norm_and_fit.rds) with fit2 (contrasts already applied)
+# - Determines which contrasts to export (from config or ALL available)
+# - Writes one TSV per contrast under cfg$paths$results
+# - Saves an RDS (de_tables.rds) with both legacy tt_* objects and a named list
+#
+# Inputs:
+#   - config.yaml (paths + params)
+#   - <paths$rds>/norm_and_fit.rds  (list with $fit2)
+#
+# Outputs:
+#   - <paths$results>/DE_<contrast>.tsv
+#   - <paths$rds>/de_tables.rds
+
 # scripts/02_de_limma.R
 source("R/io_helpers.R")
 suppressPackageStartupMessages({ library(limma); library(tidyverse); library(readr) })
@@ -14,9 +28,9 @@ fit2 <- obj$fit2
 norm_name <- function(x) gsub(" - ", "_vs_", x, fixed = TRUE)
 
 # Available coefficients in the fitted model
-avail_raw  <- colnames(fit2$coefficients)
-avail_norm <- norm_name(avail_raw)
-names(avail_raw) <- avail_norm
+avail_raw  <- colnames(fit2$coefficients) # e.g., "Lo - PBS"
+avail_norm <- norm_name(avail_raw)   # e.g., "Lo_vs_PBS"
+names(avail_raw) <- avail_norm   # map normalized -> raw
 
 # Requested contrasts (from config) or default (ALL available)
 want <- cfg$params$contrasts
