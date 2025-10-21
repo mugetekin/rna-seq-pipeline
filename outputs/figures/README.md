@@ -25,9 +25,8 @@ Where relevant, thresholds are pulled from `config.yaml` and exact rules are tak
 
 ### Volcano: Med vs PBS &nbsp;(`Volcano_Med_vs_PBS.png` and `_labeled`)
 ![Volcano Med vs PBS Labeled](Volcano_Med_vs_PBS_labeled.png)
-- **What you see:** Fewer colored points than Lo vs PBS, but still a visible tail of Up genes.  
+- **What you see:** No point met the conditions for being significant. 
 - **Why:** A moderate number pass **adj.P.Val < 0.05** *and* **|log2FC| ≥ 1**; others remain grey (raw p may be <0.05 but FDR is not).  
-- **Labeled version:** Top 12 significant genes, prioritizing larger |log2FC|.
 
 ### Volcano: Hi vs PBS &nbsp;(`Volcano_Hi_vs_PBS.png` and `_labeled`)
 ![Volcano Hi vs PBS Labeled](Volcano_Hi_vs_PBS_labeled.png)
@@ -41,7 +40,6 @@ Where relevant, thresholds are pulled from `config.yaml` and exact rules are tak
 ### Volcano: Lo vs Med, Lo vs Hi, Med vs Hi &nbsp;(`Volcano_*_vs_*`)
 - **What you see:** Asymmetry varies by pair; typically fewer colored points than Lo vs PBS.  
 - **Why:** Between-treatment comparisons often have smaller differential signal than treatment vs control, hence fewer points passing **adj.P.Val + logFC** thresholds.  
-- **Labeled versions:** Again, **top 12** significant hits by extreme logFC are annotated.
 
 **Legend note:** The legend “Down / NS / Up” corresponds to the **coloring rule using `adj.P.Val`**; the y-axis and dashed line relate to **raw p** only.
 
