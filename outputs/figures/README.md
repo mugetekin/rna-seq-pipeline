@@ -24,6 +24,7 @@ Where relevant, thresholds are pulled from `config.yaml` and exact rules are tak
 - **Interpretation:** Lo vs PBS shows **broad upregulation** (numerically more Up than Down), suggesting a strong activation relative to PBS.
 
 ### Volcano: Med vs PBS &nbsp;(`Volcano_Med_vs_PBS.png` and `_labeled`)
+![Volcano Med vs PBS Labeled](Volcano_Med_vs_PBS_labeled.png)
 - **What you see:** Fewer colored points than Lo vs PBS, but still a visible tail of Up genes.  
 - **Why:** A moderate number pass **adj.P.Val < 0.05** *and* **|log2FC| ≥ 1**; others remain grey (raw p may be <0.05 but FDR is not).  
 - **Labeled version:** Top 12 significant genes, prioritizing larger |log2FC|.
