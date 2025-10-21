@@ -17,6 +17,7 @@ Where relevant, thresholds are pulled from `config.yaml` and exact rules are tak
 ## Volcano plots (by contrast)
 
 ### Volcano: Lo vs PBS &nbsp;(`Volcano_Lo_vs_PBS.png` and `_labeled`)
+![Volcano Lo vs PBS Labeled](Volcano_Lo_vs_PBS_labeled.png)
 - **What you see:** A dense red cloud on the right (positive log2FC), plus some blue on the left.  
 - **Why:** Many genes satisfy both **|log2FC| ≥ 1** and **adj.P.Val < 0.05**, hence colored **Up/Down**.  
 - **Labeled version:** The script labels the **top 12** DE genes among significant ones by **extreme logFC** (ties broken by effect size), split between up and down.  
@@ -28,6 +29,7 @@ Where relevant, thresholds are pulled from `config.yaml` and exact rules are tak
 - **Labeled version:** Top 12 significant genes, prioritizing larger |log2FC|.
 
 ### Volcano: Hi vs PBS &nbsp;(`Volcano_Hi_vs_PBS.png` and `_labeled`)
+![Volcano Hi vs PBS Labeled](Volcano_Hi_vs_PBS_labeled.png)
 - **What you see:** **Most points are grey**, with only a **handful labeled** in the `_labeled` plot.  
 - **Real reason (why it differs from Lo):**  
   - Coloring uses **adjusted** p-values; here, **few genes meet `adj.P.Val < 0.05` + |log2FC| ≥ 1**.  
