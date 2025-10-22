@@ -17,6 +17,7 @@
 suppressPackageStartupMessages({
   library(tidyverse); library(limma); library(ggrepel); library(pheatmap)
   library(AnnotationDbi); library(org.Mm.eg.db); library(scales); library(readr)
+  # ==== EDIT HERE ==== If NOT mouse, replace org.Mm.eg.db with your species package (e.g., org.Hs.eg.db) and adjust ID prefixes below.
 })
 
 # Null-coalescing helper: return b if a is NULL or empty
@@ -24,13 +25,13 @@ suppressPackageStartupMessages({
 
 # Load normalized object produced by 01_normalize.R
 cfg  <- tryCatch({ source("R/io_helpers.R"); load_cfg() }, error=function(e) NULL)
-rds_dir <- if (is.null(cfg)) "outputs/rds" else cfg$paths$rds
+rds_dir <- if (is.null(cfg)) "outputs/rds" else cfg$paths$rds  
   # Keep anova outputs separate from other normalized outputs for tidiness
 res_dir <- "outputs_normed/anova"; dir.create(res_dir, recursive=TRUE, showWarnings=FALSE)
 fig_dir <- "outputs_normed/anova"; dir.create(fig_dir, recursive=TRUE, showWarnings=FALSE)
 
 # Load voom and metadata (created earlier in your pipeline)
-obj <- readRDS(file.path(rds_dir, "norm_and_fit.rds"))
+obj <- readRDS(file.path(rds_dir, "norm_and_fit.rds"))   # ==== EDIT HERE ==== If your upstream step saves a different file name or folder, change this path:
 v   <- obj$v
 meta <- obj$meta
 
