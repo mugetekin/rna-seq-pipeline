@@ -92,6 +92,10 @@ params:
 
 ## Quick Start
 
+# # Clone the repo
+git clone https://github.com/mugetekin/rna-seq-pipeline.git
+cd rna-seq-pipeline
+
 ### Option 1 — One command
 ```bash
 Rscript --vanilla run_all.R
