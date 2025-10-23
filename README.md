@@ -102,6 +102,10 @@ cd rna-seq-pipeline
 ```bash
 Rscript --vanilla run_all.R
 ```
+If Rscript isn’t in your PATH, use the full path:
+```bash
+"/c/Program Files/R/R-4.3.3/bin/x64/Rscript.exe" R/run_all.R
+```
 
 ### Option 2 — With Make
 ```bash
@@ -113,6 +117,16 @@ make normalize de go goi qc networks goi_zoom
 ```
 
 All results are stored in `outputs/`, with intermediates in `outputs/rds/`.
+
+### Option 3 — Run scripts individually
+You can also execute any stage directly with Rscript:
+```bash
+Rscript R/sample_qc_normed.R           # QC plots on normalized data
+Rscript R/anova_normed.R               # ANOVA across conditions
+Rscript R/de_summary_normed.R          # DE summary tables and volcano plots
+Rscript R/enrich_multi_raw.R           # Multi-contrast enrichment (fgsea)
+Rscript R/goi_zoom.R                   # Deep dive on selected GOI
+```
 
 ---
 
