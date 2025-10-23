@@ -92,9 +92,11 @@ params:
 
 ## Quick Start
 
-# # Clone the repo
+## Clone the repo
+```bash
 git clone https://github.com/mugetekin/rna-seq-pipeline.git
 cd rna-seq-pipeline
+```
 
 ### Option 1 — One command
 ```bash
