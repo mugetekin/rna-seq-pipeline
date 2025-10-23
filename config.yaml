@@ -6,19 +6,19 @@ paths:
   figures: "outputs/figures"
 
 factors:
-  treatment_levels: ["PBS","Lo","Med","Hi"]   # order matters; first is the reference
+  treatment_levels: ["PBS","Lo","Med","Hi"]   # === EDIT HERE === order matters; first is the reference
 
 params:
   cpm_min: 1
-  cpm_min_samples: 3
-  ref_group: "PBS"
-  contrasts: ["Lo_vs_PBS","Med_vs_PBS","Hi_vs_PBS","Lo_vs_Med","Lo_vs_Hi","Med_vs_Hi"]
+  cpm_min_samples: 3  # === EDIT HERE === counts per million, with these setting every library has at least one group in 3 replicates, higher than the FDR threshold, if you include all of your groups, it'll be more strcit results
+  ref_group: "PBS"    # === EDIT HERE === control groups can be written here, it is okay with more than one ref group
+  contrasts: ["Lo_vs_PBS","Med_vs_PBS","Hi_vs_PBS","Lo_vs_Med","Lo_vs_Hi","Med_vs_Hi"] # === EDIT HERE ====
   lfc_thresh: 1
   fdr_thresh: 0.05
   go_ont: "BP"
   go_n_show: 30
   gene_set_kind: "GO"          
-  species: "Mus musculus"
+  species: "Mus musculus"  # === EDIT HERE ==== if not Mus Musculus
 
 goi:
   mode: "fallback_if_empty"   # options: "go_focus_only" | "fallback_if_empty" | "de_only"
