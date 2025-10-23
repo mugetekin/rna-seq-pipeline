@@ -1,5 +1,5 @@
 paths:
-  counts: "data/raw_annotated_combined.counts"
+  counts: "data/raw_annotated_combined.counts"  # === EDIT HERE ==== with your own file path 
   outputs: "outputs"
   rds: "outputs/rds"
   results: "outputs/results"
