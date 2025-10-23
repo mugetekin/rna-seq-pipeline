@@ -1,7 +1,7 @@
 suppressPackageStartupMessages({ library(tidyverse); library(ggplot2) })
 out_dir <- "outputs_normed"; dir.create(out_dir, showWarnings = FALSE)
 
-# === EDIT ME LATER ===
+# === EDIT ME LATER === the file name can be changed 
 de_csv   <- file.path(out_dir, "DE_results_example.csv")
 alpha    <- 0.05
 # =====================
